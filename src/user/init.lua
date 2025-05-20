@@ -1,5 +1,4 @@
 local here = ...
-local lanes      = require('lanes').configure()
 local core       = require('core')
 local Doc        = require('core.doc')
 local stderr     = require('core.stderr')
@@ -18,7 +17,8 @@ tty.setup()
 
 local grammar
 while not grammar do
-  for _, i in ipairs(treesitter.grammars()) do
+  treesitter.grammars_lock:acquire()
+  for _, i in ipairs(treesitter.grammars) do
     if i.file_suffixes then
       for _, suffix in ipairs(i.file_suffixes) do
         if core.args[2]:sub(-#suffix) == suffix then
@@ -29,7 +29,8 @@ while not grammar do
       if grammar then break end
     end
   end
-  lanes.sleep(0.1)
+  treesitter.grammars_lock:release()
+  os.execute('sleep 0.1')
 end
 local parser = treesitter.Parser.new()
 parser:set_language(grammar.lang)
@@ -44,8 +45,17 @@ local runner = treesitter.Query.Runner.new({
   end,
   ['match?'] = function(capture, regex)
     local node = capture:one_node()
-    stderr.info(here, src:sub(node:start_byte() + 1, node:end_byte()), ' ', regex)
     return src:sub(node:start_byte() + 1, node:end_byte()):match(regex)
+  end,
+  ['any-of?'] = function(capture, ...)
+    local node = capture:one_node()
+    local str = src:sub(node:start_byte() + 1, node:end_byte())
+    for i = 1, select('#', ...) do
+      if str == select(i, ...) then
+        return true
+      end
+    end
+    return false
   end,
 })
 local cursor = treesitter.Query.Cursor.new(grammar.highlights, tree:root_node())

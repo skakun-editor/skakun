@@ -17,7 +17,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const build = @import("build");
-const lua = @import("ziglua");
+const lua = @import("zlua");
 const c = @cImport({
   @cInclude("stdlib.h");
   @cInclude("time.h");
@@ -116,10 +116,10 @@ pub fn main() !void {
     // If any errors were to occur in this code block past the registration of
     // this SIGABRT handler, then both the errdefer's and the handler would be
     // executed, which is obviously undesirable.
-    posix.sigaction(posix.SIG.ABRT, &.{ .handler = .{ .handler = cleanup_stderr }, .mask = posix.empty_sigset, .flags = 0 }, null);
+    posix.sigaction(posix.SIG.ABRT, &.{ .handler = .{ .handler = cleanup_stderr }, .mask = posix.sigemptyset(), .flags = 0 }, null);
   }
 
-  vm = try lua.Lua.init(allocator);
+  vm = try .init(allocator);
   vm.openLibs();
 
   assert(vm.getSubtable(lua.registry_index, "_LOADED"));

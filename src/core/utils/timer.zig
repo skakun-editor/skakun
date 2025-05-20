@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
-const lua = @import("ziglua");
+const lua = @import("zlua");
 
 var timer: ?std.time.Timer = null;
 

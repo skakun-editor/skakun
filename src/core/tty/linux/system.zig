@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
-const lua = @import("ziglua");
+const lua = @import("zlua");
 const c = @cImport({
   @cInclude("linux/input-event-codes.h");
   @cInclude("linux/kd.h");

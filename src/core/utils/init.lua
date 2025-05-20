@@ -14,8 +14,6 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-local lanes = require('lanes')
-
 local utils = {
   timer = require('core.utils.timer'),
 }
@@ -166,14 +164,6 @@ end
 
 function utils.slugify(string)
   return string:gsub('[^%w.-]', '_')
-end
-
-function utils.start_lane(required, func, ...)
-  return lanes.gen('*', { required = required }, function(...)
-    return xpcall(func, function(err)
-      io.stderr:write(debug.traceback(err), '\n')
-    end, ...)
-  end)(...)
 end
 
 return utils

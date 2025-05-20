@@ -907,12 +907,12 @@ pub const Editor = struct {
     var self: Editor = undefined;
     self = .{
       .allocator = allocator,
-      .rng = @TypeOf(self.rng).init(@bitCast(@as(i64, @truncate(std.time.nanoTimestamp())))),
-      .mmaps = @TypeOf(self.mmaps).init(allocator),
-      .buffers = @TypeOf(self.buffers).init(allocator),
-      .moved_mmapped_files = @TypeOf(self.moved_mmapped_files).init(allocator),
+      .rng = .init(@bitCast(@as(i64, @truncate(std.time.nanoTimestamp())))),
+      .mmaps = .init(allocator),
+      .buffers = .init(allocator),
+      .moved_mmapped_files = .init(allocator),
       .gio_async_ctx = gio.g_main_context_new().?,
-      .copy_cache = @TypeOf(self.copy_cache).init(allocator),
+      .copy_cache = .init(allocator),
     };
     return self;
   }

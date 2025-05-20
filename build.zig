@@ -11,8 +11,8 @@ pub fn build(b: *std.Build) void {
     .target = target,
     .optimize = optimize,
   });
-  const ziglua = b.dependency("ziglua", dep_opts);
-  exe.root_module.addImport("ziglua", ziglua.module("ziglua"));
+  const zlua = b.dependency("zlua", dep_opts);
+  exe.root_module.addImport("zlua", zlua.module("zlua"));
   exe.linkLibC();
   exe.linkSystemLibrary(if(target.result.os.tag == .linux) "gio-unix-2.0" else "gio-2.0");
   exe.linkSystemLibrary("tinfo");
@@ -49,6 +49,15 @@ pub fn build(b: *std.Build) void {
   }
   exe.addIncludePath(libgrapheme.path(""));
 
+  var lua: ?*std.Build.Step.Compile = null; // Lazy dependencies are kinda half-baked to be honest…
+  for(zlua.builder.install_tls.step.dependencies.items) |step| {
+    const install_step = step.cast(std.Build.Step.InstallArtifact) orelse continue;
+    if(std.mem.eql(u8, install_step.artifact.name, "lua")) {
+      lua = install_step.artifact;
+      break;
+    }
+  }
+
   {
     const lib = b.addSharedLibrary(.{
       .name = "core.utils.timer",
@@ -56,7 +65,7 @@ pub fn build(b: *std.Build) void {
       .target = target,
       .optimize = optimize,
     });
-    lib.root_module.addImport("ziglua", ziglua.module("ziglua"));
+    lib.root_module.addImport("zlua", zlua.module("zlua"));
     b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{ .dest_sub_path = "core/utils/timer.so" }).step);
   }
 
@@ -71,39 +80,12 @@ pub fn build(b: *std.Build) void {
       .root = dep.path(""),
       .files = &.{"fpconv.c", "lua_cjson.c", "strbuf.c"},
     });
-    lib.linkLibrary(ziglua.artifact("lua"));
+    if(lua) |x| lib.linkLibrary(x);
     b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{ .dest_sub_path = "cjson.so" }).step);
   }
 
   {
-    const dep = b.dependency("lanes", dep_opts);
-    const lib = b.addSharedLibrary(.{
-      .name = "lanes.core",
-      .target = target,
-      .optimize = optimize,
-    });
-    lib.addCSourceFiles(.{
-      .root = dep.path("src"),
-      .files = &.{
-        "lanes.c",
-        "cancel.c",
-        "compat.c",
-        "threading.c",
-        "tools.c",
-        "state.c",
-        "linda.c",
-        "deep.c",
-        "keeper.c",
-        "universe.c",
-      },
-    });
-    lib.linkLibrary(ziglua.artifact("lua"));
-    b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{ .dest_sub_path = "lanes/core.so" }).step);
-    b.getInstallStep().dependOn(&b.addInstallLibFile(dep.path("src/lanes.lua"), "lanes.lua").step);
-  }
-
-  {
-    const dep = b.dependency("lua_treesitter", .{});
+    const dep = b.dependency("lua_treesitter", dep_opts);
     const lib = b.addSharedLibrary(.{
       .name = "lua_tree_sitter",
       .target = target,
@@ -131,18 +113,8 @@ pub fn build(b: *std.Build) void {
     });
     lib.addIncludePath(dep.path("include"));
     lib.linkLibrary(b.dependency("treesitter", dep_opts).artifact("tree-sitter"));
-    lib.linkLibrary(ziglua.artifact("lua"));
+    if(lua) |x| lib.linkLibrary(x);
     b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{ .dest_sub_path = "lua_tree_sitter.so" }).step);
-    const lanes_lib = b.addSharedLibrary(.{
-      .name = "lanes.lua_tree_sitter",
-      .root_source_file = b.path("src/lanes/lua_tree_sitter.zig"),
-      .target = target,
-      .optimize = optimize,
-    });
-    lanes_lib.addIncludePath(dep.path("include"));
-    lanes_lib.linkLibrary(ziglua.artifact("lua"));
-    lanes_lib.root_module.addImport("ziglua", ziglua.module("ziglua"));
-    b.getInstallStep().dependOn(&b.addInstallArtifact(lanes_lib, .{ .dest_sub_path = "lanes/lua_tree_sitter.so" }).step);
   }
 
   var version: []const u8 = undefined;

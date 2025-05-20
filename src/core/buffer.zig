@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
-const lua = @import("ziglua");
+const lua = @import("zlua");
 const buffer = @import("../buffer.zig");
 const c = @cImport(@cInclude("stdlib.h"));
 const assert = std.debug.assert;
@@ -295,7 +295,7 @@ fn cleanup() callconv(.C) void {
 }
 
 pub fn luaopen(vm: *lua.Lua) i32 {
-  editor = buffer.Editor.init(vm.allocator());
+  editor = .init(vm.allocator());
   assert(c.atexit(cleanup) == 0);
 
   vm.newLib(&buffer_methods);

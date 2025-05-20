@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
-const lua = @import("ziglua");
+const lua = @import("zlua");
 const c = @cImport({
   @cDefine("WIN32_LEAN_AND_MEAN", {});
   @cInclude("windows.h");

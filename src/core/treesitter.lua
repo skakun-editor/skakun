@@ -15,46 +15,32 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local here = ...
-local lanes   =       require('lanes')
-local cjson   = lanes.require('cjson')
-local core    = lanes.require('core')
-local stderr  = lanes.require('core.stderr')
-local utils   = lanes.require('core.utils')
-local binding = lanes.require('lanes.lua_tree_sitter')
+local cjson   = require('cjson')
+local core    = require('core')
+local stderr  = require('core.stderr')
+local utils   = require('core.utils')
+local binding = require('lua_tree_sitter')
 
 local treesitter = setmetatable({
   pkgs = {},
 
-  linda = lanes.linda(here),
-  _grammars = {},
+  grammars = {},
+  grammars_lock = thread.newlock(),
   pkg_loader = nil,
 }, { __index = binding })
 
--- for _, lang in ipairs({'agda', 'bash', 'c', 'cpp', 'c-sharp', 'css', 'embedded-template', 'go', 'haskell', 'html', 'java', 'javascript', 'jsdoc', 'json', 'julia', 'ocaml', 'php', 'python', 'ql', 'ql-dbscheme', 'regex', 'ruby', 'rust', 'scala', 'typescript', 'verilog'}) do
---   table.insert(treesitter.pkgs, 'https://github.com/tree-sitter/tree-sitter-' .. lang)
--- end
--- for _, lang in ipairs({'arduino', 'bicep', 'bitbake', 'cairo', 'capnp', 'chatito', 'commonlisp', 'cpon', 'csv', 'cuda', 'doxygen', 'firrtl', 'func', 'gitattributes', 'glsl', 'gn', 'go-sum', 'gpg-config', 'gstlaunch', 'hare', 'hcl', 'hlsl', 'hyprlang', 'ispc', 'kconfig', 'kdl', 'kotlin', 'linkerscript', 'lua', 'luadoc', 'luap', 'luau', 'make', 'markdown', 'meson', 'move', 'nqc', 'objc', 'odin', 'pem', 'po', 'poe-filter', 'pony', 'printf', 'properties', 'puppet', 'pymanifest', 'qmldir', 'query', 're2c', 'readline', 'requirements', 'ron', 'scss', 'slang', 'smali', 'squirrel', 'ssh-config', 'starlark', 'svelte', 'tablegen', 'tcl', 'test', 'thrift', 'toml', 'udev', 'ungrammar', 'uxntal', 'vim', 'vue', 'wgsl-bevy', 'xcompose', 'xml', 'yaml', 'yuck', 'zig', 'zsh'}) do
---   table.insert(treesitter.pkgs, 'https://github.com/tree-sitter-grammars/tree-sitter-' .. lang)
--- end
-table.insert(treesitter.pkgs, 'https://github.com/tree-sitter-grammars/tree-sitter-lua')
-
-function treesitter.grammars()
-  while true do
-    local _, grammar = treesitter.linda:receive(0, 'grammar')
-    if not grammar then break end
-    table.insert(treesitter._grammars, grammar)
-  end
-  return treesitter._grammars
+for _, lang in ipairs({'agda', 'bash', 'c', 'cpp', 'c-sharp', 'css', 'embedded-template', 'go', 'haskell', 'html', 'java', 'javascript', 'jsdoc', 'json', 'julia', 'ocaml', 'php', 'python', 'ql', 'ql-dbscheme', 'regex', 'ruby', 'rust', 'scala', 'typescript', 'verilog'}) do
+  table.insert(treesitter.pkgs, 'https://github.com/tree-sitter/tree-sitter-' .. lang)
+end
+for _, lang in ipairs({'arduino', 'bicep', 'bitbake', 'cairo', 'capnp', 'chatito', 'commonlisp', 'cpon', 'csv', 'cuda', 'doxygen', 'firrtl', 'func', 'gitattributes', 'glsl', 'gn', 'go-sum', 'gpg-config', 'gstlaunch', 'hare', 'hcl', 'hlsl', 'hyprlang', 'ispc', 'kconfig', 'kdl', 'kotlin', 'linkerscript', 'lua', 'luadoc', 'luap', 'luau', 'make', 'markdown', 'meson', 'move', 'nqc', 'objc', 'odin', 'pem', 'po', 'poe-filter', 'pony', 'printf', 'properties', 'puppet', 'pymanifest', 'qmldir', 'query', 're2c', 'readline', 'requirements', 'ron', 'scss', 'slang', 'smali', 'squirrel', 'ssh-config', 'starlark', 'svelte', 'tablegen', 'tcl', 'test', 'thrift', 'toml', 'udev', 'ungrammar', 'uxntal', 'vim', 'vue', 'wgsl-bevy', 'xcompose', 'xml', 'yaml', 'yuck', 'zig', 'zsh'}) do
+  table.insert(treesitter.pkgs, 'https://github.com/tree-sitter-grammars/tree-sitter-' .. lang)
 end
 
 function treesitter.start_pkg_loader()
-  treesitter.pkg_loader = utils.start_lane({'cjson', 'core.utils', 'lanes.lua_tree_sitter'}, treesitter.load_pkgs)
-end
-
-function treesitter.stop_pkg_loader()
-  if treesitter.pkg_loader then
-    treesitter.pkg_loader:cancel('soft')
-    treesitter.pkg_loader = nil
+  if not treesitter.pkg_loader or treesitter.pkg_loader:join(0) then
+    treesitter.pkg_loader = thread.new(xpcall, treesitter.load_pkgs, function(err)
+      stderr.error(here, debug.traceback(err))
+    end)
   end
 end
 
@@ -62,7 +48,6 @@ function treesitter.load_pkgs()
   local start = utils.timer()
   local leftovers = {}
   for _, url in ipairs(treesitter.pkgs) do
-    if cancel_test() then return end
     xpcall(
       treesitter.load_pkg,
       function(err)
@@ -75,7 +60,6 @@ function treesitter.load_pkgs()
   stderr.info(here, ('pkg preload done in %.2fs'):format(utils.timer() - start))
 
   for _, url in ipairs(leftovers) do
-    if cancel_test() then return end
     xpcall(
       function()
         local dir = treesitter.download_pkg(url)
@@ -111,8 +95,7 @@ function treesitter.download_pkg(url)
       }, ' && ') .. '; } 2>&1', 'r')
       local log = pipe:read('a')
       if not pipe:close() then
-        stderr.error(here, log)
-        error()
+        error(log, 0)
       end
     end
 
@@ -120,7 +103,7 @@ function treesitter.download_pkg(url)
     local pipe = io.popen(('git -C %q pull --depth=1 2>&1'):format(dest), 'r')
     local log = pipe:read('a')
     if not pipe:close() then
-      error(log)
+      error(log, 0)
     elseif not log:match('^Already up to date.\n') then
       stderr.info(here, log)
       assert(os.execute(('git -C %q clean -dfX'):format(dest)))
@@ -133,9 +116,11 @@ end
 function treesitter.build_pkg(dir)
   stderr.info(here, 'building pkg ', dir)
 
-  local pipe = io.popen(('find %q -name tree-sitter.json -printf %%h\\\\0'):format(dir), 'r')
+  local pipe = io.popen(('find %q -name tree-sitter.json -printf %%h\\\\0 2>&1'):format(dir), 'r')
   local roots = pipe:read('a')
-  assert(pipe:close())
+  if not pipe:close() then
+    error(roots, 0)
+  end
   if roots == '' then
     stderr.warn(here, 'no tree-sitter.json in ', dir)
   end
@@ -144,8 +129,7 @@ function treesitter.build_pkg(dir)
     local pipe = io.popen(('make -C %q CFLAGS=-O3\\ -march=native -j 2>&1'):format(root), 'r')
     local log = pipe:read('a')
     if not pipe:close() then
-      stderr.error(here, log)
-      error()
+      error(log, 0)
     end
   end
 end
@@ -153,9 +137,11 @@ end
 function treesitter.load_pkg(dir)
   stderr.info(here, 'loading pkg ', dir)
 
-  local pipe = io.popen(('find %q -name tree-sitter.json -printf %%h\\\\0'):format(dir), 'r')
+  local pipe = io.popen(('find %q -name tree-sitter.json -printf %%h\\\\0 2>&1'):format(dir), 'r')
   local roots = pipe:read('a')
-  assert(pipe:close())
+  if not pipe:close() then
+    error(roots, 0)
+  end
   if #roots == 0 then
     stderr.warn(here, 'no tree-sitter.json in ', dir)
   end
@@ -200,13 +186,17 @@ function treesitter.load_pkg(dir)
         return treesitter.Query.new(lang, table.concat(result)) -- Treesitter is the bottleneck here.
       end
 
-      treesitter.linda:send('grammar', {
+      local grammar = {
         file_suffixes = json['file-types'] == cjson.null and {} or json['file-types'],
         injection_regex = json['injection-regex'],
         lang = lang,
         highlights = load_queries(json.highlights or 'queries/highlights.scm'),
+        locals = load_queries(json.locals or 'queries/locals.scm'),
         injections = load_queries(json.injections or 'queries/injections.scm'),
-      })
+      }
+      treesitter.grammars_lock:acquire()
+      table.insert(treesitter.grammars, grammar)
+      treesitter.grammars_lock:release()
     end
   end
 end

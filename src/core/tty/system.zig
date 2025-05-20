@@ -16,7 +16,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const lua = @import("ziglua");
+const lua = @import("zlua");
 const c = @cImport({
   @cInclude("string.h");
   @cInclude("sys/ioctl.h");

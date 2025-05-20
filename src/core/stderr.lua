@@ -38,7 +38,9 @@ function stderr.plain_log(level, place, ...)
 end
 stderr.log = stderr.color_log
 
+stderr.lock = thread.newlock()
 function stderr.print_indented(indent, ...)
+  stderr.lock:acquire()
   io.stderr:write(indent)
   local args = table.pack(...)
   args[args.n] = tostring(args[args.n]):gsub('\n+$', '')
@@ -46,6 +48,7 @@ function stderr.print_indented(indent, ...)
     io.stderr:write((tostring(args[i]):gsub('\n', '\n' .. indent)))
   end
   io.stderr:write('\n')
+  stderr.lock:release()
 end
 
 function stderr.error(place, ...) stderr.log('error', place, ...) end
