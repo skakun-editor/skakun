@@ -20,16 +20,18 @@ local utils  = require('core.utils')
 local DocBuffer = {}
 DocBuffer.__index = DocBuffer
 
-function DocBuffer.new()
+function DocBuffer.new(doc)
   return setmetatable({
+    doc = doc,
     buffer = Buffer.new(),
     is_frozen = false,
     freeze_time = nil,
   }, DocBuffer)
 end
 
-function DocBuffer.open(path)
+function DocBuffer.open(path, doc)
   return setmetatable({
+    doc = doc,
     buffer = Buffer.open(path),
     is_frozen = false,
     freeze_time = nil,
@@ -70,7 +72,7 @@ function DocBuffer:copy(idx, src, from, to)
   if self.is_frozen then
     error('buffer is frozen')
   end
-  self.buffer:copy(idx, src, from, to)
+  self.buffer:copy(idx, src.buffer, from, to)
 end
 
 function DocBuffer:freeze()
@@ -82,7 +84,7 @@ end
 
 function DocBuffer:thaw()
   if self.is_frozen then
-    local copy = DocBuffer.new()
+    local copy = DocBuffer.new(self.doc)
     copy:insert(1, self, 1, #self)
     return copy
   else

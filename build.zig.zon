@@ -11,8 +11,8 @@
       .hash = "N-V-__8AADU5BQDb7c4jODJ3K0ddKULwMVI2cACwtGg-nBFd",
     },
     .lua_treesitter = .{
-      .url = "https://github.com/digitcrusher/lua-tree-sitter/archive/058a00f.tar.gz",
-      .hash = "N-V-__8AALx0AQBAvl6BKYjIiRVEae-kjT1VypVtzpAoinIJ",
+      .url = "https://github.com/digitcrusher/lua-tree-sitter/archive/4bd8a6d.tar.gz",
+      .hash = "N-V-__8AAIh5AQBYk4OfntC0ch3FeMddPwToWmLxJUdY7Xvz",
     },
     .treesitter = .{
       .url = "https://github.com/tree-sitter/tree-sitter/archive/1850762.tar.gz",

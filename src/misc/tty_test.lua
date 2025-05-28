@@ -16,7 +16,7 @@
 
 local tty   = require('core.tty')
 local utils = require('core.utils')
-local rgb = utils.rgb
+local rgb = tty.Rgb.from
 
 tty.clear()
 

@@ -15,21 +15,26 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local here = ...
-local Navigator = require('core.doc.navigator')
-local stderr    = require('core.stderr')
-local tty       = require('core.tty')
-local Widget    = require('core.ui.widget')
+local Navigator         = require('core.doc.navigator')
+local SyntaxHighlighter = require('core.doc.syntax_highlighter')
+local stderr            = require('core.stderr')
+local tty               = require('core.tty')
+local Widget            = require('core.ui.widget')
+local utils             = require('core.utils')
 
 local DocView = setmetatable({
   should_soft_wrap = false,
-  foreground = nil,
-  background = nil,
-  error_color = nil,
+  faces = {
+    normal = {},
+    invalid = { foreground = 'red' },
+    syntax_highlights = {},
+  },
 }, Widget)
 DocView.__index = DocView
 
 function DocView.new(doc)
   local self = setmetatable(Widget.new(), DocView)
+  self.faces = setmetatable({}, { __index = DocView.faces })
   self.doc = doc
   self.line = 1
   self.col = 1
@@ -60,11 +65,11 @@ end
 ctrl_pics['\u{85}'] = '␤'
 
 function DocView:draw_soft_wrap()
-  tty.set_foreground(self.foreground)
-  tty.set_background(self.background)
-
   self.doc.buffer:freeze()
   local nav = Navigator.of(self.doc.buffer)
+  local highlighter = SyntaxHighlighter.of(self.doc.buffer)
+  highlighter:refresh()
+
   local loc = nav:locate_line_col(self.line, self.col)
   local iter = self.doc.buffer:iter(loc.byte)
 
@@ -73,8 +78,10 @@ function DocView:draw_soft_wrap()
     tty.move_to(x, y)
 
     while true do
-      local grapheme, is_error = self:next_grapheme(iter, loc, nav)
+      local grapheme, face = self:next_grapheme(iter, loc, nav, highlighter)
+      tty.set_face(face)
       if not grapheme then
+        loc.byte = loc.byte + iter:last_advance()
         loc.line = loc.line + 1
         loc.col = 1
         break
@@ -86,14 +93,9 @@ function DocView:draw_soft_wrap()
         break
       end
 
-      if is_error then
-        tty.set_foreground(self.error_color)
-      end
       tty.write(grapheme)
-      if is_error then
-        tty.set_foreground(self.foreground)
-      end
       x = x + width
+      loc.byte = loc.byte + iter:last_advance()
       loc.col = loc.col + width
     end
 
@@ -102,11 +104,10 @@ function DocView:draw_soft_wrap()
 end
 
 function DocView:draw_cut_off()
-  tty.set_foreground(self.foreground)
-  tty.set_background(self.background)
-
   self.doc.buffer:freeze()
   local nav = Navigator.of(self.doc.buffer)
+  local highlighter = SyntaxHighlighter.of(self.doc.buffer)
+  highlighter:refresh()
 
   for y = self.top, self.bottom do
     local x = self.left
@@ -116,10 +117,12 @@ function DocView:draw_cut_off()
     local iter = self.doc.buffer:iter(loc.byte)
 
     if loc.col < self.col then
-      local grapheme = self:next_grapheme(iter, loc, nav)
+      local grapheme, face = self:next_grapheme(iter, loc, nav, highlighter)
       if not grapheme then
         iter:rewind(iter:last_advance())
       else
+        tty.set_face(face)
+        loc.byte = loc.byte + iter:last_advance()
         loc.col = loc.col + tty.width_of(grapheme)
         local width = loc.col - self.col
         if x + width - 1 > self.right then break end
@@ -130,20 +133,16 @@ function DocView:draw_cut_off()
     end
 
     while true do
-      local grapheme, is_error = self:next_grapheme(iter, loc, nav)
+      local grapheme, face = self:next_grapheme(iter, loc, nav, highlighter)
+      tty.set_face(face)
       if not grapheme then break end
 
       local width = tty.width_of(grapheme)
       if x + width - 1 > self.right then break end
 
-      if is_error then
-        tty.set_foreground(self.error_color)
-      end
       tty.write(grapheme)
-      if is_error then
-        tty.set_foreground(self.foreground)
-      end
       x = x + width
+      loc.byte = loc.byte + iter:last_advance()
       loc.col = loc.col + width
     end
 
@@ -151,19 +150,43 @@ function DocView:draw_cut_off()
   end
 end
 
-function DocView:next_grapheme(iter, loc, nav)
+function DocView:next_grapheme(iter, loc, nav, highlighter)
   local ok, grapheme = pcall(iter.next_grapheme, iter)
   if not ok then
-    return '�', true
+    return '�', self.faces.invalid
   elseif not grapheme or grapheme == '\n' then
-    return nil, false
+    return nil, self:get_syntax_highlight_face(highlighter.highlight_at[loc.byte])
   elseif grapheme == '\t' then
-    return (' '):rep(nav.tab_width - (loc.col - 1) % nav.tab_width), false
+    return (' '):rep(nav.tab_width - (loc.col - 1) % nav.tab_width), self:get_syntax_highlight_face(highlighter.highlight_at[loc.byte])
   elseif ctrl_pics[grapheme] then
-    return ctrl_pics[grapheme], true
+    return ctrl_pics[grapheme], self.faces.invalid
   else
-    return grapheme, false
+    return grapheme, self:get_syntax_highlight_face(highlighter.highlight_at[loc.byte])
   end
+end
+
+function DocView:get_syntax_highlight_face(name)
+  if not name then
+    return self.faces.normal
+  end
+
+  local result = self.faces.syntax_highlights[name]
+  if result then
+    return result
+  end
+
+  local group = name
+  while not result do
+    group = group:match('(.*)%.')
+    if not group then
+      result = self.faces.normal
+    else
+      result = self.faces.syntax_highlights[group]
+    end
+  end
+  self.faces.syntax_highlights[name] = result
+  stderr.warn(here, ('inheriting syntax highlight face for %q from %q'):format(name, group))
+  return result
 end
 
 function DocView:handle_event(event)

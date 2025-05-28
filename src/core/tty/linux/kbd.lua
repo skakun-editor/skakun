@@ -69,11 +69,11 @@ function Kbd:feed(string)
       ctrl = state & 1 << KG.CTRL ~= 0,
       shift = state & 1 << KG.SHIFT ~= 0,
     }
-    local ok, text = pcall(self.handle_keycode, self, keycode, is_release, event.type == 'repeat')
+    local ok, text = xpcall(self.handle_keycode, debug.traceback, self, keycode, is_release, event.type == 'repeat')
     if ok then
       event.text = text
     else
-      stderr.error(here, 'keycode handler failed:\n', debug.traceback(text))
+      stderr.error(here, 'keycode handler failed:\n', text)
     end
     self.is_pressed[keycode] = not is_release
 

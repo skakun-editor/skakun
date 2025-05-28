@@ -6,73 +6,52 @@ local treesitter = require('core.treesitter')
 local tty        = require('core.tty')
 local DocView    = require('core.ui.doc_view')
 local utils      = require('core.utils')
-local rgb = utils.rgb
+local dracula    = require('theme.dracula')
+
+-- TODO: put ui thread into sleep instead of tirelessly polling tty input
 
 -- core.should_forward_stderr_on_exit = false
 utils.lock_globals()
-treesitter.start_pkg_loader()
-table.insert(core.cleanups, tty.stop_pkg_loader)
 table.insert(core.cleanups, tty.restore)
 tty.setup()
+dracula.apply()
 
-local grammar
-while not grammar do
-  treesitter.grammars_lock:acquire()
-  for _, i in ipairs(treesitter.grammars) do
-    if i.file_suffixes then
-      for _, suffix in ipairs(i.file_suffixes) do
-        if core.args[2]:sub(-#suffix) == suffix then
-          grammar = i
-          break
-        end
-      end
-      if grammar then break end
-    end
-  end
-  treesitter.grammars_lock:release()
-  os.execute('sleep 0.1')
-end
-local parser = treesitter.Parser.new()
-parser:set_language(grammar.lang)
-local src = io.open(core.args[2], 'r'):read('a')
-local tree = parser:parse(nil, function(from)
-  return src:sub(from + 1)
-end)
-local runner = treesitter.Query.Runner.new({
-  ['eq?'] = function(capture, string)
-    local node = capture:one_node()
-    return src:sub(node:start_byte() + 1, node:end_byte()) == string
-  end,
-  ['match?'] = function(capture, regex)
-    local node = capture:one_node()
-    return src:sub(node:start_byte() + 1, node:end_byte()):match(regex)
-  end,
-  ['any-of?'] = function(capture, ...)
-    local node = capture:one_node()
-    local str = src:sub(node:start_byte() + 1, node:end_byte())
-    for i = 1, select('#', ...) do
-      if str == select(i, ...) then
-        return true
-      end
-    end
-    return false
-  end,
+thread.new(xpcall, treesitter.load_pkgs, function(err)
+  stderr.error(here, debug.traceback(err))
+end, {
+  -- You can find more parsers here: https://github.com/tree-sitter/tree-sitter/wiki/List-of-parsers
+  'https://github.com/tree-sitter/tree-sitter-agda',
+  'https://github.com/tree-sitter/tree-sitter-bash',
+  'https://github.com/tree-sitter/tree-sitter-c',
+  'https://github.com/tree-sitter/tree-sitter-cpp',
+  'https://github.com/tree-sitter/tree-sitter-c-sharp',
+  'https://github.com/tree-sitter/tree-sitter-css',
+  'https://github.com/tree-sitter/tree-sitter-embedded-template',
+  'https://github.com/tree-sitter/tree-sitter-go',
+  'https://github.com/tree-sitter/tree-sitter-haskell',
+  'https://github.com/tree-sitter/tree-sitter-html',
+  'https://github.com/tree-sitter/tree-sitter-java',
+  'https://github.com/tree-sitter/tree-sitter-javascript',
+  'https://github.com/tree-sitter/tree-sitter-jsdoc',
+  'https://github.com/tree-sitter/tree-sitter-json',
+  'https://github.com/tree-sitter/tree-sitter-julia',
+  'https://github.com/tree-sitter/tree-sitter-ocaml',
+  'https://github.com/tree-sitter/tree-sitter-php',
+  'https://github.com/tree-sitter/tree-sitter-python',
+  'https://github.com/tree-sitter/tree-sitter-ql',
+  'https://github.com/tree-sitter/tree-sitter-ql-dbscheme',
+  'https://github.com/tree-sitter/tree-sitter-regex',
+  'https://github.com/tree-sitter/tree-sitter-ruby',
+  'https://github.com/tree-sitter/tree-sitter-rust',
+  'https://github.com/tree-sitter/tree-sitter-scala',
+  'https://github.com/tree-sitter/tree-sitter-typescript',
+  'https://github.com/tree-sitter/tree-sitter-verilog',
+  'https://github.com/tree-sitter-grammars/tree-sitter-lua',
+  'https://github.com/tree-sitter-grammars/tree-sitter-markdown',
+  'https://github.com/tree-sitter-grammars/tree-sitter-zig',
 })
-local cursor = treesitter.Query.Cursor.new(grammar.highlights, tree:root_node())
-stderr.info(here, 'witamy ', tree:root_node())
-for i in runner:iter_captures(cursor) do
-  local a = i:node():start_byte() + 1
-  local b = i:node():end_byte()
-  stderr.info(here, i:name(), ' ', a, ' ', b, ' \t', src:sub(a, b))
-end
-stderr.info(here, 'żegnamy')
 
---[[
 local root = DocView.new(Doc.open(core.args[2]))
-
-DocView.foreground = rgb'000000'
-DocView.background = rgb'ffffff'
-DocView.error_color = rgb'ff0000'
 
 local old_width, old_height
 while true do
@@ -91,6 +70,11 @@ while true do
     if event.type == 'press' or event.type == 'repeat' then
       if event.button == 'escape' then
         os.exit(0)
+      elseif event.button == 't' then
+        local ok, err = pcall(event.shift and dracula.apply or dracula.unapply)
+        if not ok then
+          stderr.error(here, err)
+        end
       end
       should_redraw = true
     end
@@ -106,11 +90,12 @@ while true do
 
     root:draw()
     tty.set_cursor(false)
+    tty.set_window_background(root.faces.normal.background)
 
     tty.sync_end()
     tty.flush()
 
     stderr.info(here, 'redraw done in ', math.floor(1e6 * (utils.timer() - start)), 'µs')
+    os.execute('sleep 0.01')
   end
 end
---]]

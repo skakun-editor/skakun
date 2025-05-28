@@ -104,14 +104,6 @@ function utils.base64_decode(base64)
   return string
 end
 
-function utils.rgb(string)
-  return {
-    red   = tonumber(string:sub(1, 2), 16),
-    green = tonumber(string:sub(3, 4), 16),
-    blue  = tonumber(string:sub(5, 6), 16),
-  }
-end
-
 function utils.tostring(value, visited)
   if type(value) == 'table' then
     visited = visited or {}
@@ -164,6 +156,65 @@ end
 
 function utils.slugify(string)
   return string:gsub('[^%w.-]', '_')
+end
+
+function utils.once(func, ...)
+  local args = table.pack(...)
+  local lock = thread.newlock()
+  local results = nil
+  return function()
+    -- Depends heavily on the inner workings of the interpreter's
+    -- multithreading and will most likely break, if they change.
+    if not results then
+      lock:acquire()
+      if not results then
+        results = table.pack(xpcall(func, debug.traceback, table.unpack(args, 1, args.n)))
+      end
+      lock:release()
+    end
+    if results[1] then
+      return table.unpack(results, 2, results.n)
+    else
+      error(results[2], 0)
+    end
+  end
+end
+
+utils.Themer = {}
+utils.Themer.__index = utils.Themer
+
+function utils.Themer.new()
+  return setmetatable({
+    saved = nil,
+  }, utils.Themer)
+end
+
+function utils.Themer:apply(...)
+  local count = select('#', ...)
+  assert(count % 3 == 0)
+  if self.saved then
+    error('theme already applied')
+  end
+  self.saved = {}
+  for i = 1, count, 3 do
+    local object, key, value = select(i, ...), select(i + 1, ...), select(i + 2, ...)
+    local old_value = object[key]
+    object[key] = value
+    table.insert(self.saved, object)
+    table.insert(self.saved, key)
+    table.insert(self.saved, old_value)
+  end
+end
+
+function utils.Themer:unapply(...)
+  if not self.saved then
+    error('theme not applied')
+  end
+  for i = 1, #self.saved, 3 do
+    local object, key, old_value = self.saved[i], self.saved[i + 1], self.saved[i + 2]
+    object[key] = old_value
+  end
+  self.saved = nil
 end
 
 return utils

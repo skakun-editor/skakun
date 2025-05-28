@@ -20,17 +20,19 @@ local Doc = {}
 Doc.__index = Doc
 
 function Doc.new()
-  return setmetatable({
-    buffer = DocBuffer.new(),
+  local self = setmetatable({
     path = nil,
   }, Doc)
+  self.buffer = DocBuffer.new(self)
+  return self
 end
 
 function Doc.open(path)
-  return setmetatable({
-    buffer = DocBuffer.open(path),
+  local self = setmetatable({
     path = path,
   }, Doc)
+  self.buffer = DocBuffer.open(path, self)
+  return self
 end
 
 function Doc:save(path)

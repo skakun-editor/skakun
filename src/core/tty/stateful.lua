@@ -105,16 +105,25 @@ local tty = setmetatable({
     'zoom_out',
   },
 
+  face_attrs = {
+    'foreground',
+    'background',
+    'bold',
+    'italic',
+    'underline',
+    'underline_color',
+    'underline_shape',
+    'strikethrough',
+  },
+
   -- All of the 104 keys of a standard US layout Windows keyboard
   buttons = {
     'escape', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'print_screen', 'scroll_lock', 'pause',
-    'backtick', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'minus', 'equal', 'backspace',
-    'tab', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', 'left_bracket', 'right_bracket', 'backslash',
+    'backtick', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'minus', 'equal', 'backspace', 'insert', 'home', 'page_up',
+    'tab', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', 'left_bracket', 'right_bracket', 'backslash', 'delete', 'end', 'page_down',
     'caps_lock', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'semicolon', 'apostrophe', 'enter',
-    'left_shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', 'comma', 'dot', 'slash', 'right_shift',
-    'left_ctrl', 'left_super', 'left_alt', 'space', 'right_alt', 'right_super', 'menu', 'right_ctrl',
-    'insert', 'delete', 'home', 'end', 'page_up', 'page_down',
-    'up', 'left', 'down', 'right',
+    'left_shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', 'comma', 'dot', 'slash', 'right_shift', 'up',
+    'left_ctrl', 'left_super', 'left_alt', 'space', 'right_alt', 'right_super', 'menu', 'right_ctrl', 'left', 'down', 'right',
     'num_lock', 'kp_divide', 'kp_multiply', 'kp_subtract', 'kp_add', 'kp_enter', 'kp_1', 'kp_2', 'kp_3', 'kp_4', 'kp_5', 'kp_6', 'kp_7', 'kp_8', 'kp_9', 'kp_0', 'kp_decimal',
     'mouse_left', 'mouse_middle', 'mouse_right', 'scroll_up', 'scroll_down', 'scroll_left', 'scroll_right', 'mouse_prev', 'mouse_next',
   },
@@ -130,6 +139,7 @@ local tty = setmetatable({
     underline_shape = true,
     strikethrough = true,
     hyperlink = true,
+
     cursor = true,
     cursor_shape = true,
     mouse_shape = true,
@@ -174,8 +184,11 @@ function tty.setup()
   end
 end
 
-function tty.restore() -- HACK: cursor shape
+function tty.restore()
   tty.write('\27[0m')
+  tty.set_cursor()
+  tty.set_cursor_shape()
+  tty.set_window_background()
   tty.write('\27[23;0t') -- Restore the window title from the stack
   tty.write('\27]22;<\27\\') -- Pop our pointer shape from the stack
   tty.write('\27[?1006l') -- Shrink the range of mouse coordinates to default
@@ -427,11 +440,11 @@ function tty.load_ansi_color_palette()
   tty.ansi_color_palette = {}
   for name, reply in pairs(replies) do
     local red, green, blue = reply()
-    tty.ansi_color_palette[name] = {
-      red = tonumber(red, 16),
-      green = tonumber(green, 16),
-      blue = tonumber(blue, 16),
-    }
+    tty.ansi_color_palette[name] = tty.Rgb.new(
+      tonumber(red, 16),
+      tonumber(green, 16),
+      tonumber(blue, 16)
+    )
   end
 end
 
@@ -846,6 +859,37 @@ function tty.load_functions()
     end
   else
     function tty.set_clipboard() end
+  end
+end
+
+tty.Rgb = {}
+tty.Rgb.__index = tty.Rgb
+
+function tty.Rgb.new(red, green, blue)
+  return setmetatable({
+    red = red,
+    green = green,
+    blue = blue,
+  }, tty.Rgb)
+end
+
+function tty.Rgb.from(string)
+  return tty.Rgb.new(
+    tonumber(string:sub(1, 2), 16),
+    tonumber(string:sub(3, 4), 16),
+    tonumber(string:sub(5, 6), 16)
+  )
+end
+
+function tty.Rgb:__eq(other)
+  return self.red == other.red and self.green == other.green and self.blue == other.blue
+end
+
+function tty.set_face(face)
+  for _, name in pairs(tty.face_attrs) do
+    if tty.state[name] ~= face[name] then
+      tty['set_' .. name](face[name])
+    end
   end
 end
 

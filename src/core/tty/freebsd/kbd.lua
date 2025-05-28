@@ -64,11 +64,11 @@ function Kbd:feed(string)
       ctrl = self.state & c.CTLS ~= 0,
       shift = self.state & c.SHIFTS ~= 0,
     }
-    local ok, text = pcall(self.handle_keycode, self, keycode, is_release)
+    local ok, text = xpcall(self.handle_keycode, debug.traceback, self, keycode, is_release)
     if ok then
       event.text = text
     else
-      stderr.error(here, 'keycode handler failed:\n', debug.traceback(text))
+      stderr.error(here, 'keycode handler failed:\n', text)
     end
     self.is_pressed[keycode] = not is_release
 

@@ -22,32 +22,15 @@ local utils   = require('core.utils')
 local binding = require('lua_tree_sitter')
 
 local treesitter = setmetatable({
-  pkgs = {},
-
   grammars = {},
-  grammars_lock = thread.newlock(),
-  pkg_loader = nil,
 }, { __index = binding })
 
-for _, lang in ipairs({'agda', 'bash', 'c', 'cpp', 'c-sharp', 'css', 'embedded-template', 'go', 'haskell', 'html', 'java', 'javascript', 'jsdoc', 'json', 'julia', 'ocaml', 'php', 'python', 'ql', 'ql-dbscheme', 'regex', 'ruby', 'rust', 'scala', 'typescript', 'verilog'}) do
-  table.insert(treesitter.pkgs, 'https://github.com/tree-sitter/tree-sitter-' .. lang)
-end
-for _, lang in ipairs({'arduino', 'bicep', 'bitbake', 'cairo', 'capnp', 'chatito', 'commonlisp', 'cpon', 'csv', 'cuda', 'doxygen', 'firrtl', 'func', 'gitattributes', 'glsl', 'gn', 'go-sum', 'gpg-config', 'gstlaunch', 'hare', 'hcl', 'hlsl', 'hyprlang', 'ispc', 'kconfig', 'kdl', 'kotlin', 'linkerscript', 'lua', 'luadoc', 'luap', 'luau', 'make', 'markdown', 'meson', 'move', 'nqc', 'objc', 'odin', 'pem', 'po', 'poe-filter', 'pony', 'printf', 'properties', 'puppet', 'pymanifest', 'qmldir', 'query', 're2c', 'readline', 'requirements', 'ron', 'scss', 'slang', 'smali', 'squirrel', 'ssh-config', 'starlark', 'svelte', 'tablegen', 'tcl', 'test', 'thrift', 'toml', 'udev', 'ungrammar', 'uxntal', 'vim', 'vue', 'wgsl-bevy', 'xcompose', 'xml', 'yaml', 'yuck', 'zig', 'zsh'}) do
-  table.insert(treesitter.pkgs, 'https://github.com/tree-sitter-grammars/tree-sitter-' .. lang)
-end
+function treesitter.on_grammars_change() end
 
-function treesitter.start_pkg_loader()
-  if not treesitter.pkg_loader or treesitter.pkg_loader:join(0) then
-    treesitter.pkg_loader = thread.new(xpcall, treesitter.load_pkgs, function(err)
-      stderr.error(here, debug.traceback(err))
-    end)
-  end
-end
-
-function treesitter.load_pkgs()
+function treesitter.load_pkgs(pkgs)
   local start = utils.timer()
   local leftovers = {}
-  for _, url in ipairs(treesitter.pkgs) do
+  for _, url in ipairs(pkgs) do
     xpcall(
       treesitter.load_pkg,
       function(err)
@@ -58,13 +41,16 @@ function treesitter.load_pkgs()
     )
   end
   stderr.info(here, ('pkg preload done in %.2fs'):format(utils.timer() - start))
+  treesitter.on_grammars_change()
 
+  local success = false
   for _, url in ipairs(leftovers) do
     xpcall(
       function()
         local dir = treesitter.download_pkg(url)
         treesitter.build_pkg(dir)
         treesitter.load_pkg(dir)
+        success = true
       end,
       function(err)
         if err then
@@ -74,6 +60,9 @@ function treesitter.load_pkgs()
     )
   end
   stderr.info(here, ('pkg load done in %.2fs'):format(utils.timer() - start))
+  if success then
+    treesitter.on_grammars_change()
+  end
 end
 
 function treesitter.download_pkg(url)
@@ -155,7 +144,8 @@ function treesitter.load_pkg(dir)
     end
 
     for _, json in ipairs(json.grammars) do
-      stderr.info(here, 'loading grammar ', json.scope, '/', json.name)
+      local id = json.scope .. '/' .. json.name
+      stderr.info(here, 'loading grammar ', id)
 
       local ok, lang = pcall(
         treesitter.Language.load,
@@ -186,17 +176,25 @@ function treesitter.load_pkg(dir)
         return treesitter.Query.new(lang, table.concat(result)) -- Treesitter is the bottleneck here.
       end
 
-      local grammar = {
-        file_suffixes = json['file-types'] == cjson.null and {} or json['file-types'],
+      table.insert(treesitter.grammars, {
+        id = id,
+        file_types = json['file-types'] ~= cjson.null and json['file-types'] or {},
         injection_regex = json['injection-regex'],
         lang = lang,
-        highlights = load_queries(json.highlights or 'queries/highlights.scm'),
-        locals = load_queries(json.locals or 'queries/locals.scm'),
-        injections = load_queries(json.injections or 'queries/injections.scm'),
-      }
-      treesitter.grammars_lock:acquire()
-      table.insert(treesitter.grammars, grammar)
-      treesitter.grammars_lock:release()
+        highlights = utils.once(load_queries, json.highlights or 'queries/highlights.scm'),
+        locals = utils.once(load_queries, json.locals or 'queries/locals.scm'),
+        injections = utils.once(load_queries, json.injections or 'queries/injections.scm'),
+      })
+    end
+  end
+end
+
+function treesitter.grammar_for_path(path)
+  for _, grammar in ipairs(treesitter.grammars) do
+    for _, suffix in ipairs(grammar.file_types) do
+      if path:sub(-#suffix) == suffix then
+        return grammar
+      end
     end
   end
 end
