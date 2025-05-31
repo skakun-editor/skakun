@@ -46,6 +46,7 @@ local SyntaxHighlighter = {
       end
       return false
     end end,
+    ['is-not?'] = function(self) return function() end end,
     ['set!'] = function(self) return function(key, value)
       self.capture_properties[key] = value
     end end,

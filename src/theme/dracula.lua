@@ -39,8 +39,6 @@ end
 -- The particular selection and configuration of colors used below is subject to
 -- the following license:
 --
--- The MIT License (MIT)
---
 -- Copyright (c) 2023 Dracula Theme
 --
 -- Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -94,31 +92,77 @@ end
 
 function dracula.from(colors)
   local faces = {
-    normal                             = { foreground = colors.foreground, background = colors.background },
-    invalid                            = { foreground = colors.foreground, background = colors.red },
-    error                              = { foreground = colors.red,        background = colors.background },
-    class_name                         = { foreground = colors.cyan,       background = colors.background },
-    instance_reserved_words            = { foreground = colors.purple,     background = colors.background, italic = true },
-    comment                            = { foreground = colors.comment,    background = colors.background },
-    constant                           = { foreground = colors.purple,     background = colors.background },
-    constant_escape_sequences          = { foreground = colors.pink,       background = colors.background },
-    html_tags                          = { foreground = colors.pink,       background = colors.background },
-    function_names                     = { foreground = colors.green,      background = colors.background },
-    function_parameters                = { foreground = colors.orange,     background = colors.background, italic = true },
-    decorators                         = { foreground = colors.green,      background = colors.background, italic = true },
-    keyword                            = { foreground = colors.pink,       background = colors.background },
-    builtin_magic_methods_or_constants = { foreground = colors.purple,     background = colors.background },
-    builtin_functions                  = { foreground = colors.cyan,       background = colors.background },
-    brackets_parens_braces             = { foreground = colors.foreground, background = colors.background },
-    string_interpolation_operators     = { foreground = colors.pink,       background = colors.background },
-    keys                               = { foreground = colors.cyan,       background = colors.background },
-    yaml_aliases                       = { foreground = colors.green,      background = colors.background, italic = true, underline = true },
-    types                              = { foreground = colors.cyan,       background = colors.background, italic = true },
-    modifiers                          = { foreground = colors.pink,       background = colors.background },
-    string                             = { foreground = colors.yellow,     background = colors.background },
-    string_regexp                      = { foreground = colors.red,        background = colors.background },
-    variable                           = { foreground = colors.foreground, background = colors.background },
-    object_keys                        = { foreground = colors.foreground, background = colors.background },
+    normal                                    = { foreground = colors.foreground, background = colors.background },
+    invalid                                   = { foreground = colors.foreground, background = colors.red },
+    deprecated                                = { foreground = colors.foreground, background = colors.purple },
+    error                                     = { foreground = colors.red,        background = colors.background },
+
+    diff_text                                 = { foreground = colors.comment,    background = colors.background },
+    diff_header                               = { foreground = colors.comment,    background = colors.background },
+    diff_inserted                             = { foreground = colors.green,      background = colors.background },
+    diff_deleted                              = { foreground = colors.red,        background = colors.background },
+    diff_changed                              = { foreground = colors.orange,     background = colors.background },
+
+    markup_bold                               = { foreground = colors.orange,     background = colors.background, bold = true },
+    markup_heading                            = { foreground = colors.purple,     background = colors.background, bold = true },
+    markup_italic                             = { foreground = colors.yellow,     background = colors.background, italic = true },
+    markup_list_bullet_or_number              = { foreground = colors.cyan,       background = colors.background },
+    markup_inline_code                        = { foreground = colors.green,      background = colors.background },
+    markup_link_url                           = { foreground = colors.cyan,       background = colors.background },
+    markup_link_text                          = { foreground = colors.pink,       background = colors.background },
+    markup_blockquote                         = { foreground = colors.yellow,     background = colors.background, italic = true },
+    markup_horizontal_rule                    = { foreground = colors.comment,    background = colors.background },
+    markup_code_block_without_syntax          = { foreground = colors.orange,     background = colors.background },
+    markup_rst_constants                      = { foreground = colors.purple,     background = colors.background },
+
+    class_name                                = { foreground = colors.cyan,       background = colors.background },
+    instance_reserved_words                   = { foreground = colors.purple,     background = colors.background, italic = true },
+    inherited_class_name                      = { foreground = colors.cyan,       background = colors.background, italic = true },
+
+    comment                                   = { foreground = colors.comment,    background = colors.background },
+    doc_comment_keywords                      = { foreground = colors.pink,       background = colors.background },
+    doc_comment_types                         = { foreground = colors.cyan,       background = colors.background, italic = true },
+    doc_comment_parameters                    = { foreground = colors.orange,     background = colors.background, italic = true },
+
+    constant                                  = { foreground = colors.purple,     background = colors.background },
+    constant_escape_sequences                 = { foreground = colors.pink,       background = colors.background },
+
+    html_tags                                 = { foreground = colors.pink,       background = colors.background },
+    css_parent_selectors                      = { foreground = colors.pink,       background = colors.background },
+    html_css_attribute_names                  = { foreground = colors.green,      background = colors.background },
+
+    function_names                            = { foreground = colors.green,      background = colors.background },
+    function_parameters                       = { foreground = colors.orange,     background = colors.background, italic = true },
+    decorators                                = { foreground = colors.green,      background = colors.background, italic = true },
+
+    keyword                                   = { foreground = colors.pink,       background = colors.background },
+    keyword_new                               = { foreground = colors.pink,       background = colors.background, bold = true },
+    keyword_generic_css_selector              = { foreground = colors.pink,       background = colors.background },
+
+    support                                   = { foreground = colors.cyan,       background = colors.background, italic = true },
+    builtin_magic_methods_or_constants        = { foreground = colors.purple,     background = colors.background },
+    builtin_functions                         = { foreground = colors.cyan,       background = colors.background },
+
+    separators_references_or_accessors        = { foreground = colors.pink,       background = colors.background },
+    brackets_parens_braces                    = { foreground = colors.foreground, background = colors.background },
+    string_interpolation_operators            = { foreground = colors.pink,       background = colors.background },
+
+    keys                                      = { foreground = colors.cyan,       background = colors.background },
+    date_time                                 = { foreground = colors.orange,     background = colors.background },
+    yaml_aliases                              = { foreground = colors.green,      background = colors.background, italic = true, underline = true },
+
+    storage                                   = { foreground = colors.pink,       background = colors.background },
+    types                                     = { foreground = colors.cyan,       background = colors.background, italic = true },
+    modifiers                                 = { foreground = colors.pink,       background = colors.background },
+    generic_templates_and_mapped_declarations = { foreground = colors.orange,     background = colors.background, italic = true },
+
+    string                                    = { foreground = colors.yellow,     background = colors.background },
+    string_regexp                             = { foreground = colors.red,        background = colors.background },
+
+    variable                                  = { foreground = colors.foreground, background = colors.background },
+    object_keys                               = { foreground = colors.foreground, background = colors.background },
+    destructuring_alias_lhs                   = { foreground = colors.orange,     background = colors.background, italic = true },
+    destructuring_alias_rhs                   = { foreground = colors.foreground, background = colors.background },
   }
   faces.syntax_highlights = {
     ['attribute']                   = faces.decorators,

@@ -1,20 +1,24 @@
 local here = ...
-local core       = require('core')
-local Doc        = require('core.doc')
-local stderr     = require('core.stderr')
-local treesitter = require('core.treesitter')
-local tty        = require('core.tty')
-local DocView    = require('core.ui.doc_view')
-local utils      = require('core.utils')
-local dracula    = require('theme.dracula')
+local core          = require('core')
+local Doc           = require('core.doc')
+local stderr        = require('core.stderr')
+local treesitter    = require('core.treesitter')
+local tty           = require('core.tty')
+local DocView       = require('core.ui.doc_view')
+local utils         = require('core.utils')
+local dracula       = require('theme.dracula')
+local github_dark   = require('theme.github_dark')
+local github_light  = require('theme.github_light')
+local gruvbox_dark  = require('theme.gruvbox_dark')
+local gruvbox_light = require('theme.gruvbox_light')
 
 -- TODO: put ui thread into sleep instead of tirelessly polling tty input
+-- TODO: display syntax group under cursor
 
 -- core.should_forward_stderr_on_exit = false
 utils.lock_globals()
 table.insert(core.cleanups, tty.restore)
 tty.setup()
-dracula.apply()
 
 thread.new(xpcall, treesitter.load_pkgs, function(err)
   stderr.error(here, debug.traceback(err))
@@ -52,6 +56,8 @@ end, {
 })
 
 local root = DocView.new(Doc.open(core.args[2]))
+local theme = dracula
+theme.apply()
 
 local old_width, old_height
 while true do
@@ -70,10 +76,15 @@ while true do
     if event.type == 'press' or event.type == 'repeat' then
       if event.button == 'escape' then
         os.exit(0)
-      elseif event.button == 't' then
-        local ok, err = pcall(event.shift and dracula.apply or dracula.unapply)
-        if not ok then
-          stderr.error(here, err)
+      elseif tonumber(event.button) then
+        if theme then
+          theme.unapply()
+          theme = nil
+        end
+        theme = ({dracula, github_dark, github_light, gruvbox_dark, gruvbox_light})[tonumber(event.button)]
+        if theme then
+          tty.cap.foreground = event.shift and 'ansi' or 'true_color'
+          theme.apply()
         end
       end
       should_redraw = true
