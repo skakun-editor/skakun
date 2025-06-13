@@ -29,7 +29,8 @@ function gruvbox_light.apply()
   gruvbox_light.themer:apply(
     DocView.faces, 'normal', theme.faces.normal,
     DocView.faces, 'invalid', theme.faces.invalid,
-    DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights
+    DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
+    DocView.colors, 'misspelling', theme.colors.red
   )
 end
 

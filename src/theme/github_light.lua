@@ -29,7 +29,8 @@ function github_light.apply()
   github_light.themer:apply(
     DocView.faces, 'normal', theme.faces.normal,
     DocView.faces, 'invalid', theme.faces.invalid_illegal,
-    DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights
+    DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
+    DocView.colors, 'step_error_text', theme.colors.step_error_text
   )
 end
 
@@ -76,6 +77,7 @@ function github_light.regenerate()
     invalid_illegal_text = rgb'f6f8fa',
     invalid_illegal_bg   = rgb'82071e',
     string_regexp        = rgb'116329',
+    step_error_text      = rgb'ff8182',
   })
   github_light.ansi = github_dark.from({
     text                 = 'black',
@@ -90,6 +92,7 @@ function github_light.regenerate()
     invalid_illegal_text = 'bright_white',
     invalid_illegal_bg   = 'red',
     string_regexp        = 'green',
+    step_error_text      = 'bright_red',
   })
 end
 

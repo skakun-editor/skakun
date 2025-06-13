@@ -24,6 +24,8 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const posix = std.posix;
 
+// TODO: make this actually thread-safe
+
 // Some methods have an optional "err_msg" parameter, which on failure, may be
 // set to an error message from GIO. The caller is reponsible for freeing
 // err_msg with the Editor's allocator afterwards.

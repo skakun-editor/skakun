@@ -60,6 +60,18 @@ pub fn build(b: *std.Build) void {
 
   {
     const lib = b.addSharedLibrary(.{
+      .name = "core.enchant",
+      .root_source_file = b.path("src/core/enchant.zig"),
+      .target = target,
+      .optimize = optimize,
+    });
+    lib.root_module.addImport("zlua", zlua.module("zlua"));
+    lib.linkSystemLibrary("enchant-2");
+    b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{ .dest_sub_path = "core/enchant.so" }).step);
+  }
+
+  {
+    const lib = b.addSharedLibrary(.{
       .name = "core.utils.timer",
       .root_source_file = b.path("src/core/utils/timer.zig"),
       .target = target,

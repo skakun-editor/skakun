@@ -16,6 +16,7 @@
 
 local here = ...
 local Navigator         = require('core.doc.navigator')
+local SpellChecker      = require('core.doc.spell_checker')
 local SyntaxHighlighter = require('core.doc.syntax_highlighter')
 local stderr            = require('core.stderr')
 local tty               = require('core.tty')
@@ -28,6 +29,9 @@ local DocView = setmetatable({
     normal = {},
     invalid = { foreground = 'red' },
     syntax_highlights = {},
+  },
+  colors = {
+    misspelling = 'red',
   },
 }, Widget)
 DocView.__index = DocView
@@ -42,6 +46,13 @@ function DocView.new(doc)
 end
 
 function DocView:draw()
+  self.buffer = self.doc.buffer
+  self.buffer:freeze()
+  self.navigator = Navigator.of(self.buffer)
+  self.syntax_highlighter = SyntaxHighlighter.of(self.buffer)
+  self.syntax_highlighter:refresh()
+  self.spell_checker = SpellChecker.of(self.buffer)
+
   if self.should_soft_wrap then
     self:draw_soft_wrap()
   else
@@ -65,21 +76,15 @@ end
 ctrl_pics['\u{85}'] = '␤'
 
 function DocView:draw_soft_wrap()
-  self.doc.buffer:freeze()
-  local nav = Navigator.of(self.doc.buffer)
-  local highlighter = SyntaxHighlighter.of(self.doc.buffer)
-  highlighter:refresh()
-
-  local loc = nav:locate_line_col(self.line, self.col)
-  local iter = self.doc.buffer:iter(loc.byte)
+  local loc = self.navigator:locate_line_col(self.line, self.col)
+  local iter = self.buffer:iter(loc.byte)
 
   for y = self.top, self.bottom do
     local x = self.left
     tty.move_to(x, y)
 
     while true do
-      local grapheme, face = self:next_grapheme(iter, loc, nav, highlighter)
-      tty.set_face(face)
+      local grapheme = self:next_grapheme(iter, loc)
       if not grapheme then
         loc.byte = loc.byte + iter:last_advance()
         loc.line = loc.line + 1
@@ -104,24 +109,18 @@ function DocView:draw_soft_wrap()
 end
 
 function DocView:draw_cut_off()
-  self.doc.buffer:freeze()
-  local nav = Navigator.of(self.doc.buffer)
-  local highlighter = SyntaxHighlighter.of(self.doc.buffer)
-  highlighter:refresh()
-
   for y = self.top, self.bottom do
     local x = self.left
     tty.move_to(x, y)
 
-    local loc = nav:locate_line_col(self.line + y - self.top, self.col)
-    local iter = self.doc.buffer:iter(loc.byte)
+    local loc = self.navigator:locate_line_col(self.line + y - self.top, self.col)
+    local iter = self.buffer:iter(loc.byte)
 
     if loc.col < self.col then
-      local grapheme, face = self:next_grapheme(iter, loc, nav, highlighter)
+      local grapheme = self:next_grapheme(iter, loc)
       if not grapheme then
         iter:rewind(iter:last_advance())
       else
-        tty.set_face(face)
         loc.byte = loc.byte + iter:last_advance()
         loc.col = loc.col + tty.width_of(grapheme)
         local width = loc.col - self.col
@@ -133,8 +132,7 @@ function DocView:draw_cut_off()
     end
 
     while true do
-      local grapheme, face = self:next_grapheme(iter, loc, nav, highlighter)
-      tty.set_face(face)
+      local grapheme = self:next_grapheme(iter, loc)
       if not grapheme then break end
 
       local width = tty.width_of(grapheme)
@@ -150,19 +148,29 @@ function DocView:draw_cut_off()
   end
 end
 
-function DocView:next_grapheme(iter, loc, nav, highlighter)
-  local ok, grapheme = pcall(iter.next_grapheme, iter)
+function DocView:next_grapheme(iter, loc)
+  local ok, result = pcall(iter.next_grapheme, iter)
+  local is_invalid = false
   if not ok then
-    return '�', self.faces.invalid
-  elseif not grapheme or grapheme == '\n' then
-    return nil, self:get_syntax_highlight_face(highlighter.highlight_at[loc.byte])
-  elseif grapheme == '\t' then
-    return (' '):rep(nav.tab_width - (loc.col - 1) % nav.tab_width), self:get_syntax_highlight_face(highlighter.highlight_at[loc.byte])
-  elseif ctrl_pics[grapheme] then
-    return ctrl_pics[grapheme], self.faces.invalid
-  else
-    return grapheme, self:get_syntax_highlight_face(highlighter.highlight_at[loc.byte])
+    result = '�'
+    is_invalid = true
+  elseif not result or result == '\n' then
+    result = nil
+  elseif result == '\t' then
+    result = (' '):rep(self.nav.tab_width - (loc.col - 1) % self.nav.tab_width)
+  elseif ctrl_pics[result] then
+    result = ctrl_pics[result]
+    is_invalid = true
   end
+
+  tty.set_face(is_invalid and self.faces.invalid or self:get_syntax_highlight_face(self.syntax_highlighter.highlight_at[loc.byte]))
+  if self.spell_checker.is_correct[loc.byte] == false then
+    tty.set_underline(true)
+    tty.set_underline_color(self.colors.misspelling)
+    tty.set_underline_shape('curly')
+  end
+
+  return result
 end
 
 function DocView:get_syntax_highlight_face(name)

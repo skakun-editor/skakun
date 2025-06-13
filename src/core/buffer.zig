@@ -211,8 +211,10 @@ fn validate_mmaps(vm: *lua.Lua) i32 {
 const buffer_methods = [_]lua.FnReg{
   .{ .name = "new", .func = lua.wrap(new) },
   .{ .name = "open", .func = lua.wrap(open) },
+  .{ .name = "__gc", .func = lua.wrap(__gc) },
   .{ .name = "save", .func = lua.wrap(save) },
 
+  .{ .name = "__len", .func = lua.wrap(__len) },
   .{ .name = "read", .func = lua.wrap(read) },
   .{ .name = "iter", .func = lua.wrap(iter) },
 
@@ -282,6 +284,7 @@ fn last_advance(vm: *lua.Lua) i32 {
 }
 
 const iter_methods = [_]lua.FnReg{
+  .{ .name = "__gc", .func = lua.wrap(__gc_iter) },
   .{ .name = "next", .func = lua.wrap(next) },
   .{ .name = "prev", .func = lua.wrap(prev) },
   .{ .name = "rewind", .func = lua.wrap(rewind) },
@@ -298,24 +301,17 @@ pub fn luaopen(vm: *lua.Lua) i32 {
   editor = .init(vm.allocator());
   assert(c.atexit(cleanup) == 0);
 
-  vm.newLib(&buffer_methods);
+  vm.newMetatable("core.buffer") catch unreachable;
+  vm.setFuncs(&buffer_methods, 0);
+  vm.pushValue(-1);
+  vm.setField(-2, "__index");
   vm.pushInteger(@intCast(editor.max_open_size));
   vm.setField(-2, "max_open_size");
 
-  vm.newMetatable("core.buffer") catch unreachable;
-  vm.pushValue(-2);
-  vm.setField(-2, "__index");
-  vm.pushFunction(lua.wrap(__gc));
-  vm.setField(-2, "__gc");
-  vm.pushFunction(lua.wrap(__len));
-  vm.setField(-2, "__len");
-  vm.pop(1);
-
   vm.newMetatable("core.buffer.iter") catch unreachable;
-  vm.newLib(&iter_methods);
+  vm.setFuncs(&iter_methods, 0);
+  vm.pushValue(-1);
   vm.setField(-2, "__index");
-  vm.pushFunction(lua.wrap(__gc_iter));
-  vm.setField(-2, "__gc");
   vm.pop(1);
 
   return 1;

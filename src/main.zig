@@ -117,6 +117,7 @@ pub fn main() !void {
     // this SIGABRT handler, then both the errdefer's and the handler would be
     // executed, which is obviously undesirable.
     posix.sigaction(posix.SIG.ABRT, &.{ .handler = .{ .handler = cleanup_stderr }, .mask = posix.sigemptyset(), .flags = 0 }, null);
+    // posix.sigaction(posix.SIG.ABRT, &.{ .handler = .{ .handler = cleanup_stderr }, .mask = posix.empty_sigset, .flags = 0 }, null);
   }
 
   vm = try .init(allocator);
