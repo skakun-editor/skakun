@@ -23,7 +23,7 @@ DocBuffer.__index = DocBuffer
 function DocBuffer.new(doc)
   return setmetatable({
     doc = doc,
-    buffer = Buffer.new(),
+    raw = Buffer.new(),
     is_frozen = false,
     freeze_time = nil,
   }, DocBuffer)
@@ -32,47 +32,47 @@ end
 function DocBuffer.open(path, doc)
   return setmetatable({
     doc = doc,
-    buffer = Buffer.open(path),
+    raw = Buffer.open(path),
     is_frozen = false,
     freeze_time = nil,
   }, DocBuffer)
 end
 
 function DocBuffer:save(path)
-  self.buffer:save(path)
+  self.raw:save(path)
 end
 
 function DocBuffer:__len()
-  return #self.buffer
+  return #self.raw
 end
 
 function DocBuffer:read(from, to)
-  return self.buffer:read(from, to)
+  return self.raw:read(from, to)
 end
 
 function DocBuffer:iter(from)
-  return self.buffer:iter(from)
+  return self.raw:iter(from)
 end
 
 function DocBuffer:insert(idx, string)
   if self.is_frozen then
     error('buffer is frozen')
   end
-  self.buffer:insert(idx, string)
+  self.raw:insert(idx, string)
 end
 
 function DocBuffer:delete(from, to)
   if self.is_frozen then
     error('buffer is frozen')
   end
-  self.buffer:delete(from, to)
+  self.raw:delete(from, to)
 end
 
 function DocBuffer:copy(idx, src, from, to)
   if self.is_frozen then
     error('buffer is frozen')
   end
-  self.buffer:copy(idx, src.buffer, from, to)
+  self.raw:copy(idx, src.raw, from, to)
 end
 
 function DocBuffer:freeze()
@@ -85,7 +85,7 @@ end
 function DocBuffer:thaw()
   if self.is_frozen then
     local copy = DocBuffer.new(self.doc)
-    copy:insert(1, self, 1, #self)
+    copy:copy(1, self, 1, #self)
     return copy
   else
     return self
@@ -93,15 +93,15 @@ function DocBuffer:thaw()
 end
 
 function DocBuffer:load()
-  self.buffer:load()
+  self.raw:load()
 end
 
 function DocBuffer:has_healthy_mmap()
-  return self.buffer:has_healthy_mmap()
+  return self.raw:has_healthy_mmap()
 end
 
 function DocBuffer:has_corrupt_mmap()
-  return self.buffer:has_corrupt_mmap()
+  return self.raw:has_corrupt_mmap()
 end
 
 function DocBuffer.validate_mmaps()

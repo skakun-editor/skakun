@@ -183,11 +183,6 @@ fn copy(vm: *lua.Lua) i32 {
   return 0;
 }
 
-fn clear_copy_cache(_: *lua.Lua) i32 {
-  editor.clear_copy_cache();
-  return 0;
-}
-
 fn load(vm: *lua.Lua) i32 {
   vm.checkUserdata(*Buffer, 1, "core.buffer").*.load() catch |err| raise_err(vm, err, null);
   return 0;
@@ -221,7 +216,6 @@ const buffer_methods = [_]lua.FnReg{
   .{ .name = "insert", .func = lua.wrap(insert) },
   .{ .name = "delete", .func = lua.wrap(delete) },
   .{ .name = "copy", .func = lua.wrap(copy) },
-  .{ .name = "clear_copy_cache", .func = lua.wrap(clear_copy_cache) },
 
   .{ .name = "load", .func = lua.wrap(load) },
   .{ .name = "has_healthy_mmap", .func = lua.wrap(has_healthy_mmap) },

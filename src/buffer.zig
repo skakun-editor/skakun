@@ -24,32 +24,41 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const posix = std.posix;
 
-// TODO: make this actually thread-safe
-
 // Some methods have an optional "err_msg" parameter, which on failure, may be
 // set to an error message from GIO. The caller is reponsible for freeing
 // err_msg with the Editor's allocator afterwards.
 
 pub const Error = Allocator.Error || error {OutOfBounds, MultipleHardLinks} || GioError || posix.OpenError || posix.ReadError || posix.MMapError || posix.RealPathError || posix.RenameError;
 
+threadlocal var rng: ?std.Random.DefaultPrng = null;
+fn random() std.Random {
+  if(rng == null) {
+    rng = .init(@bitCast(@as(i64, @truncate(std.time.nanoTimestamp()))));
+  }
+  return rng.?.random();
+}
+
 const Fragment = struct {
   const Owner = enum {
-    Allocator, Glib, Mmap
+    allocator, glib, mmap
   };
-  refc: i32 = 0,
+  const Mmap = struct {
+    is_corrupt: bool = false,
+    // A file descriptor's inode number is constant. Even then, an mmap is
+    // technically bound to the inode, and not the file descriptor.
+    st_dev: posix.dev_t,
+    st_ino: posix.ino_t,
+    file_monitor: ?*gio.GFileMonitor = null,
+    data_lock: std.Thread.RwLock = .{},
+    load_lock: std.Thread.Mutex = .{},
+  };
+  refc: std.atomic.Value(i32) = .init(0),
   owner: Owner,
   data: []u8,
-
-  // Data specific to mmaps
-  is_corrupt: bool = false,
-  // A file descriptor's inode number is constant. Even then, an mmap is
-  // technically bound to the inode, and not the file descriptor.
-  st_dev: posix.dev_t = undefined,
-  st_ino: posix.ino_t = undefined,
-  file_monitor: ?*gio.GFileMonitor = null,
+  mmap: ?*Mmap = null,
 
   fn create(editor: *Editor, owner: Owner, data: []u8) Allocator.Error!*Fragment {
-    assert(owner != .Mmap);
+    assert(owner != .mmap);
     const self = try editor.allocator.create(Fragment);
     self.* = .{
       .owner = owner,
@@ -59,13 +68,18 @@ const Fragment = struct {
   }
 
   fn create_mmap(editor: *Editor, data: []u8, st_dev: posix.dev_t, st_ino: posix.ino_t, path: [*:0]const u8, err_msg: ?*?[]u8) GioError!*Fragment {
+    const mmap = try editor.allocator.create(Mmap);
+    errdefer editor.allocator.destroy(mmap);
+    mmap.* = .{
+      .st_dev = st_dev,
+      .st_ino = st_ino,
+    };
     const self = try editor.allocator.create(Fragment);
     errdefer editor.allocator.destroy(self);
     self.* = .{
-      .owner = .Mmap,
+      .owner = .mmap,
       .data = data,
-      .st_dev = st_dev,
-      .st_ino = st_ino,
+      .mmap = mmap,
     };
 
     const file = gio.g_file_new_for_path(path);
@@ -75,45 +89,43 @@ const Fragment = struct {
     defer gio.g_main_context_pop_thread_default(editor.gio_async_ctx);
 
     var err: ?*gio.GError = null;
-    self.file_monitor = gio.g_file_monitor_file(file, gio.G_FILE_MONITOR_WATCH_HARD_LINKS, null, &err) orelse return handle_gio_error(err.?, editor.allocator, err_msg);
-    errdefer gio.g_object_unref(self.file_monitor);
+    mmap.file_monitor = gio.g_file_monitor_file(file, gio.G_FILE_MONITOR_WATCH_HARD_LINKS, null, &err) orelse return handle_gio_error(err.?, editor.allocator, err_msg);
+    errdefer gio.g_object_unref(mmap.file_monitor);
 
     const user_data = try editor.allocator.create(GioCallbackUserData);
     errdefer editor.allocator.destroy(user_data);
     user_data.* = .{ .self = self, .editor = editor };
-    _ = gio.g_signal_connect_data(self.file_monitor, "changed", @ptrCast(&gio_file_monitor_callback), user_data, @ptrCast(&gio_destroy_user_data), gio.G_CONNECT_DEFAULT);
+    _ = gio.g_signal_connect_data(mmap.file_monitor, "changed", @ptrCast(&gio_file_monitor_callback), user_data, @ptrCast(&gio_destroy_user_data), gio.G_CONNECT_DEFAULT);
 
-    try editor.mmaps.append(self);
+    editor.lock.lock();
+    defer editor.lock.unlock();
+    try editor.mmaps.append(mmap);
+
     return self;
   }
 
   const GioCallbackUserData = struct { self: *Fragment, editor: *Editor };
-  fn gio_file_monitor_callback(_: *gio.GFileMonitor, _: *gio.GFile, _: *gio.GFile, event: gio.GFileMonitorEvent, user_data: *GioCallbackUserData) callconv(.C) void {
+  fn gio_file_monitor_callback(file_monitor: *gio.GFileMonitor, _: *gio.GFile, _: *gio.GFile, event: gio.GFileMonitorEvent, user_data: *GioCallbackUserData) callconv(.C) void {
     // We don't have to check for deletion since the mmap keeps the file
     // contents alive.
     if(event != gio.G_FILE_MONITOR_EVENT_CHANGED) return;
     const self = user_data.self;
     const editor = user_data.editor;
+    const mmap = self.mmap.?;
 
-    if(self.file_monitor != null) return;
-    const file_monitor = self.file_monitor.?;
-    self.file_monitor = null;
+    if(@cmpxchgStrong(?*gio.GFileMonitor, &mmap.file_monitor, file_monitor, null, .acquire, .monotonic) != null) return;
     gio.g_object_unref(file_monitor);
 
     // Unfortunately, when the backing file is modified, the whole mmapped
     // range is trashed, so we can't zero out only the unloaded pages.
     // (I've tried.)
-    self.is_corrupt = true;
-    self.data = posix.mmap(@alignCast(self.data.ptr), self.data.len, posix.PROT.READ, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0) catch unreachable;
+    mmap.is_corrupt = true;
+    assert((posix.mmap(@alignCast(self.data.ptr), self.data.len, posix.PROT.READ, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .FIXED = true }, -1, 0) catch unreachable).ptr == self.data.ptr);
+    editor.lock.lock();
     for(editor.buffers.items) |buffer| {
-      if(buffer.root) |root| {
-        root.update_stats(true);
-      }
+      buffer.needs_mmap_stats_update.store(true, .monotonic);
     }
-    var iter = editor.copy_cache.valueIterator();
-    while(iter.next()) |node| {
-      node.*.update_stats(true);
-    }
+    editor.lock.unlock();
     editor.were_mmaps_corrupted = true;
   }
   fn gio_destroy_user_data(user_data: *GioCallbackUserData, _: *gio.GClosure) callconv(.C) void {
@@ -121,67 +133,92 @@ const Fragment = struct {
   }
 
   fn ref(self: *Fragment) *Fragment {
-    self.refc += 1;
+    _ = self.refc.fetchAdd(1, .monotonic);
     return self;
   }
 
   fn unref(self: *Fragment, editor: *Editor) void {
-    self.refc -= 1;
-    if(self.refc > 0) return;
+    if(self.refc.fetchSub(1, .release) != 1) return;
+    _ = self.refc.load(.acquire);
+
     switch(self.owner) {
-      .Allocator => {
+      .allocator => {
         editor.allocator.free(self.data);
       },
-      .Glib => {
+      .glib => {
         gio.g_free(self.data.ptr);
       },
-      .Mmap => {
+      .mmap => {
         posix.munmap(@alignCast(self.data));
-        if(self.file_monitor) |x| gio.g_object_unref(x);
-        _ = editor.mmaps.swapRemove(std.mem.indexOfScalar(*Fragment, editor.mmaps.items, self).?);
+        if(self.mmap.?.file_monitor) |x| gio.g_object_unref(x);
+        editor.lock.lock();
+        _ = editor.mmaps.swapRemove(std.mem.indexOfScalar(*Mmap, editor.mmaps.items, self.mmap.?).?);
+        editor.lock.unlock();
       },
     }
+    if(self.mmap) |x| editor.allocator.destroy(x);
     editor.allocator.destroy(self);
   }
 
+  fn acquire_data(self: *Fragment) []const u8 {
+    if(self.owner != .mmap) {
+      return self.data;
+    }
+    self.mmap.?.data_lock.lockShared();
+    if(self.owner != .mmap) {
+      @branchHint(.cold);
+      self.mmap.?.data_lock.unlockShared();
+    }
+    return self.data;
+  }
+
+  fn release_data(self: *Fragment) void {
+    if(self.owner != .mmap) return;
+    self.mmap.?.data_lock.unlockShared();
+  }
+
   fn load(self: *Fragment, editor: *Editor) Allocator.Error!void {
-    if(self.owner != .Mmap or self.is_corrupt) return;
+    if(self.owner != .mmap) return;
+    const mmap = self.mmap.?;
+    mmap.load_lock.lock();
+    defer mmap.load_lock.unlock();
 
-    const data = self.data;
-    posix.madvise(@alignCast(data.ptr), data.len, posix.MADV.SEQUENTIAL) catch {};
-    self.data = try editor.allocator.dupe(u8, data);
-    self.owner = .Allocator;
+    if(self.owner != .mmap or mmap.is_corrupt) return;
 
-    posix.munmap(@alignCast(data));
-    if(self.file_monitor) |x| gio.g_object_unref(x);
-    _ = editor.mmaps.swapRemove(std.mem.indexOfScalar(*Fragment, editor.mmaps.items, self).?);
+    const old = self.data;
+    posix.madvise(@alignCast(old.ptr), old.len, posix.MADV.SEQUENTIAL) catch {};
+    const new = try editor.allocator.dupe(u8, old);
 
+    mmap.data_lock.lock();
+    self.data = new;
+    self.owner = .allocator;
+    mmap.data_lock.unlock();
+
+    posix.munmap(@alignCast(old));
+    if(mmap.file_monitor) |x| gio.g_object_unref(x);
+    editor.lock.lock();
+    _ = editor.mmaps.swapRemove(std.mem.indexOfScalar(*Mmap, editor.mmaps.items, mmap).?);
     for(editor.buffers.items) |buffer| {
-      if(buffer.root) |root| {
-        root.update_stats(true);
-      }
+      buffer.needs_mmap_stats_update.store(true, .monotonic);
     }
-    var iter = editor.copy_cache.valueIterator();
-    while(iter.next()) |node| {
-      node.*.update_stats(true);
-    }
+    editor.lock.unlock();
   }
 };
 
 const Node = struct {
-  refc: i32 = 0,
+  refc: std.atomic.Value(i32) = .init(0),
   is_frozen: bool = false,
-  frag: struct {
-    ptr: *Fragment,
-    start: usize,
-    end: usize,
+  value: struct {
+    frag: *Fragment,
+    offset: usize,
+    len: usize,
 
-    fn slice(self: @This()) []u8 {
-      return self.ptr.data[self.start .. self.end];
+    fn acquire(self: @This()) []const u8 {
+      return self.frag.acquire_data()[self.offset ..][0 .. self.len];
     }
 
-    fn len(self: @This()) usize {
-      return self.end - self.start;
+    fn release(self: @This()) void {
+      self.frag.release_data();
     }
   },
 
@@ -189,21 +226,23 @@ const Node = struct {
   left: ?*Node = null,
   right: ?*Node = null,
   stats: struct {
-    bytes: usize,
+    len: usize,
     has_healthy_mmap: bool,
     has_corrupt_mmap: bool,
   },
+  stats_version: std.atomic.Value(u32) = .init(0),
+  stats_lock: std.Thread.Mutex = .{},
 
-  fn create(editor: *Editor, frag: *Fragment, start: usize, end: usize) Allocator.Error!*Node {
-    assert(start < end and end <= frag.data.len);
+  fn create(editor: *Editor, frag: *Fragment, offset: usize, len: usize) Allocator.Error!*Node {
+    assert(offset + len <= frag.data.len and len > 0);
     const self = try editor.allocator.create(Node);
     self.* = .{
-      .frag = .{
-        .ptr = frag.ref(),
-        .start = start,
-        .end = end,
+      .value = .{
+        .frag = frag.ref(),
+        .offset = offset,
+        .len = len,
       },
-      .priority = editor.rng.random().int(@TypeOf(self.priority)),
+      .priority = random().int(@TypeOf(self.priority)),
       .stats = undefined,
     };
     self.update_stats(false);
@@ -211,20 +250,21 @@ const Node = struct {
   }
 
   fn ref(self: *Node) *Node {
-    self.refc += 1;
+    _ = self.refc.fetchAdd(1, .monotonic);
     return self;
   }
 
   fn unref(self: *Node, editor: *Editor) void {
-    self.refc -= 1;
-    if(self.refc > 0) return;
+    if(self.refc.fetchSub(1, .release) != 1) return;
+    _ = self.refc.load(.acquire);
+
     if(self.left) |x| {
       x.unref(editor);
     }
     if(self.right) |x| {
       x.unref(editor);
     }
-    self.frag.ptr.unref(editor);
+    self.value.frag.unref(editor);
     editor.allocator.destroy(self);
   }
 
@@ -240,10 +280,10 @@ const Node = struct {
     }
     const copy = try editor.allocator.create(Node);
     copy.* = .{
-      .frag = .{
-        .ptr = self.frag.ptr.ref(),
-        .start = self.frag.start,
-        .end = self.frag.end,
+      .value = .{
+        .frag = self.value.frag.ref(),
+        .offset = self.value.offset,
+        .len = self.value.len,
       },
       .priority = self.priority,
       .left = if(self.left) |x| x.ref() else null,
@@ -254,7 +294,7 @@ const Node = struct {
   }
 
   fn load(self: *Node, editor: *Editor) Allocator.Error!void {
-    try self.frag.ptr.load(editor);
+    try self.value.frag.load(editor);
     if(self.left) |x| {
       try x.load(editor);
     }
@@ -282,14 +322,18 @@ const Node = struct {
   }
 
   fn update_stats(self: *Node, should_recurse: bool) void {
-    self.stats.bytes = self.frag.end - self.frag.start;
-    self.stats.has_healthy_mmap = false;
-    self.stats.has_corrupt_mmap = false;
-    if(self.frag.ptr.owner == .Mmap) {
-      if(self.frag.ptr.is_corrupt) {
-        self.stats.has_corrupt_mmap = true;
+    const version = self.stats_version.fetchAdd(1, .acquire) + 1;
+
+    var stats = @TypeOf(self.stats){
+      .len = self.value.len,
+      .has_healthy_mmap = false,
+      .has_corrupt_mmap = false,
+    };
+    if(self.value.frag.owner == .mmap) {
+      if(self.value.frag.mmap.?.is_corrupt) {
+        stats.has_corrupt_mmap = true;
       } else {
-        self.stats.has_healthy_mmap = true;
+        stats.has_healthy_mmap = true;
       }
     }
 
@@ -297,12 +341,12 @@ const Node = struct {
       if(should_recurse) {
         x.update_stats(true);
       }
-      self.stats.bytes += x.stats.bytes;
+      stats.len += x.stats.len;
       if(x.stats.has_healthy_mmap) {
-        self.stats.has_healthy_mmap = true;
+        stats.has_healthy_mmap = true;
       }
       if(x.stats.has_corrupt_mmap) {
-        self.stats.has_corrupt_mmap = true;
+        stats.has_corrupt_mmap = true;
       }
     }
 
@@ -310,19 +354,25 @@ const Node = struct {
       if(should_recurse) {
         x.update_stats(true);
       }
-      self.stats.bytes += x.stats.bytes;
+      stats.len += x.stats.len;
       if(x.stats.has_healthy_mmap) {
-        self.stats.has_healthy_mmap = true;
+        stats.has_healthy_mmap = true;
       }
       if(x.stats.has_corrupt_mmap) {
-        self.stats.has_corrupt_mmap = true;
+        stats.has_corrupt_mmap = true;
       }
     }
+
+    self.stats_lock.lock();
+    if(self.stats_version.load(.monotonic) == version) {
+      self.stats = stats;
+    }
+    self.stats_lock.unlock();
   }
 
   fn read(self: *Node, offset_: usize, dest: []u8) error {OutOfBounds}!usize {
     var offset = offset_;
-    if(offset > self.stats.bytes) return error.OutOfBounds;
+    if(offset > self.stats.len) return error.OutOfBounds;
     if(dest.len <= 0) {
       return 0;
     }
@@ -330,22 +380,22 @@ const Node = struct {
     var readc: usize = 0;
 
     if(self.left) |left| {
-      if(offset < left.stats.bytes) {
+      if(offset < left.stats.len) {
         readc += try left.read(offset, dest);
         offset = 0;
       } else {
-        offset -= left.stats.bytes;
+        offset -= left.stats.len;
       }
     }
 
-    const data = self.frag.slice();
-    if(offset < data.len) {
-      const data_slice = data[offset .. @min(offset + dest.len - readc, data.len)];
+    if(offset < self.value.len) {
+      const data_slice = self.value.acquire()[offset .. @min(offset + dest.len - readc, self.value.len)];
+      defer self.value.release();
       @memcpy(dest[readc ..], data_slice);
       readc += data_slice.len;
       offset = 0;
     } else {
-      offset -= data.len;
+      offset -= self.value.len;
     }
 
     if(self.right) |right| {
@@ -360,9 +410,12 @@ const Node = struct {
       try x.save(editor, output, err_msg);
     }
 
-    const data = self.frag.slice();
-    var err: ?*gio.GError = null;
-    if(gio.g_output_stream_write_all(output, data.ptr, data.len, null, null, &err) == 0) return handle_gio_error(err.?, editor.allocator, err_msg);
+    {
+      const data = self.value.acquire();
+      defer self.value.release();
+      var err: ?*gio.GError = null;
+      if(gio.g_output_stream_write_all(output, data.ptr, data.len, null, null, &err) == 0) return handle_gio_error(err.?, editor.allocator, err_msg);
+    }
 
     if(self.right) |x| {
       try x.save(editor, output, err_msg);
@@ -370,8 +423,8 @@ const Node = struct {
   }
 
   fn merge(editor: *Editor, maybe_a: ?*Node, maybe_b: ?*Node) Allocator.Error!?*Node {
-    var a = maybe_a orelse return maybe_b;
-    var b = maybe_b orelse return maybe_a;
+    const a = maybe_a orelse return maybe_b;
+    const b = maybe_b orelse return maybe_a;
     if(a.priority >= b.priority) {
       const result = try a.thaw(editor);
       result.set_right(editor, try Node.merge(editor, a.right, b));
@@ -394,7 +447,7 @@ const Node = struct {
     }
 
     if(self.left) |left| {
-      if(offset <= left.stats.bytes) {
+      if(offset <= left.stats.len) {
         const b = try self.thaw(editor);
         const sub = try left.split_ref(editor, offset);
         b.set_left(editor, sub[1]);
@@ -402,23 +455,23 @@ const Node = struct {
         b.update_stats(false);
         return .{sub[0], b.ref()};
       }
-      offset -= left.stats.bytes;
+      offset -= left.stats.len;
     }
 
-    if(offset < self.frag.end - self.frag.start) {
-      const b = try Node.create(editor, self.frag.ptr, self.frag.start + offset, self.frag.end);
+    if(offset < self.value.len) {
+      const b = try Node.create(editor, self.value.frag, self.value.offset + offset, self.value.len - offset);
       b.set_right(editor, self.right);
       b.update_stats(false);
       const a = try self.thaw(editor);
-      a.frag.end = a.frag.start + offset;
+      a.value.len = offset;
       a.set_right(editor, null);
       a.update_stats(false);
       return .{a.ref(), b.ref()};
     }
-    offset -= self.frag.end - self.frag.start;
+    offset -= self.value.len;
 
     if(self.right) |right| {
-      if(offset < right.stats.bytes) {
+      if(offset < right.stats.len) {
         const a = try self.thaw(editor);
         const sub = try right.split_ref(editor, offset);
         a.set_right(editor, sub[0]);
@@ -426,7 +479,7 @@ const Node = struct {
         a.update_stats(false);
         return .{a.ref(), sub[1]};
       }
-      offset -= right.stats.bytes;
+      offset -= right.stats.len;
     }
 
     return if(offset == 0) .{self.ref(), null} else error.OutOfBounds;
@@ -436,6 +489,7 @@ const Node = struct {
 pub const Buffer = struct {
   editor: *Editor,
   root: ?*Node,
+  needs_mmap_stats_update: std.atomic.Value(bool) = .init(false),
 
   pub fn create(editor: *Editor, root: ?*Node) Allocator.Error!*Buffer {
     const self = try editor.allocator.create(Buffer);
@@ -444,7 +498,11 @@ pub const Buffer = struct {
       .editor = editor,
       .root = if(root) |x| x.ref() else null,
     };
-    try self.editor.buffers.append(self);
+
+    editor.lock.lock();
+    defer editor.lock.unlock();
+    try editor.buffers.append(self);
+
     return self;
   }
 
@@ -452,7 +510,9 @@ pub const Buffer = struct {
     if(self.root) |x| {
       x.unref(self.editor);
     }
+    self.editor.lock.lock();
     _ = self.editor.buffers.swapRemove(std.mem.indexOfScalar(*Buffer, self.editor.buffers.items, self).?);
+    self.editor.lock.unlock();
     self.editor.allocator.destroy(self);
   }
 
@@ -463,15 +523,29 @@ pub const Buffer = struct {
   }
 
   pub fn len(self: *Buffer) usize {
-    return if(self.root) |x| x.stats.bytes else 0;
+    return if(self.root) |x| x.stats.len else 0;
   }
 
   pub fn has_healthy_mmap(self: *Buffer) bool {
-    return if(self.root) |x| x.stats.has_healthy_mmap else false;
+    if(self.root) |x| {
+      if(self.needs_mmap_stats_update.cmpxchgStrong(true, false, .acquire, .monotonic) == null) {
+        x.update_stats(true);
+      }
+      return x.stats.has_healthy_mmap;
+    } else {
+      return false;
+    }
   }
 
   pub fn has_corrupt_mmap(self: *Buffer) bool {
-    return if(self.root) |x| x.stats.has_corrupt_mmap else false;
+    if(self.root) |x| {
+      if(self.needs_mmap_stats_update.cmpxchgStrong(true, false, .acquire, .monotonic) == null) {
+        x.update_stats(true);
+      }
+      return x.stats.has_corrupt_mmap;
+    } else {
+      return false;
+    }
   }
 
   pub fn read(self: *Buffer, offset: usize, dest: []u8) error {OutOfBounds}!usize {
@@ -496,19 +570,19 @@ pub const Buffer = struct {
       const node = result.node();
 
       if(node.left) |x| {
-        if(offset < x.stats.bytes) {
+        if(offset < x.stats.len) {
           result.descend(x);
           continue;
         } else {
-          offset -= x.stats.bytes;
+          offset -= x.stats.len;
         }
       }
 
-      if(offset < node.frag.len()) {
+      if(offset < node.value.len) {
         result.offset_in_node = offset;
         break;
       } else {
-        offset -= node.frag.len();
+        offset -= node.value.len;
       }
 
       if(node.right) |x| {
@@ -607,15 +681,16 @@ pub const Buffer = struct {
         if(child != parent.left) break;
       }
 
-      self.offset_in_node = self.node().frag.len();
+      self.offset_in_node = self.node().value.len;
     }
 
     pub fn next(self: *Iterator) ?u8 {
-      if(self.path.len <= 0 or self.offset_in_node >= self.node().frag.len()) {
+      if(self.path.len <= 0 or self.offset_in_node >= self.node().value.len) {
         self.next_node() catch return null;
       }
       defer self.offset_in_node += 1;
-      return self.node().frag.slice()[self.offset_in_node];
+      defer self.node().value.release();
+      return self.node().value.acquire()[self.offset_in_node];
     }
 
     pub fn prev(self: *Iterator) ?u8 {
@@ -623,7 +698,8 @@ pub const Buffer = struct {
         self.prev_node() catch return null;
       }
       self.offset_in_node -= 1;
-      return self.node().frag.slice()[self.offset_in_node];
+      defer self.node().value.release();
+      return self.node().value.acquire()[self.offset_in_node];
     }
 
     pub fn rewind(self: *Iterator, count_: usize) error {OutOfBounds}!void {
@@ -747,12 +823,14 @@ pub const Buffer = struct {
         const stat = try posix.fstat(fd);
 
         var is_mmap = false;
+        self.editor.lock.lock();
         for(self.editor.mmaps.items) |mmap| {
           if(mmap.st_dev == stat.dev and mmap.st_ino == stat.ino) {
             is_mmap = true;
             break;
           }
         }
+        self.editor.lock.unlock();
 
         if(is_mmap) {
           // If the destination file has multiple hard links pointing it, then
@@ -764,9 +842,13 @@ pub const Buffer = struct {
             return error.MultipleHardLinks;
           }
 
-          const new_name = try std.fmt.allocPrintZ(self.editor.allocator, ".{s}.skak-{x:0>8}", .{name, self.editor.rng.random().int(u32)});
+          const new_name = try std.fmt.allocPrintZ(self.editor.allocator, ".{s}.skak-{x:0>8}", .{name, random().int(u32)});
           try posix.renameat(dir_fd, name, dir_fd, new_name);
-          try self.editor.moved_mmapped_files.append(.{ .dir_fd = dir_fd, .name = new_name });
+          {
+            self.editor.lock.lock();
+            defer self.editor.lock.unlock();
+            try self.editor.moved_mmapped_files.append(.{ .dir_fd = dir_fd, .name = new_name });
+          }
           should_close_dir_fd = false;
 
           posix.close(fd);
@@ -796,7 +878,7 @@ pub const Buffer = struct {
 
     const copied_data = try self.editor.allocator.dupe(u8, data);
     errdefer self.editor.allocator.free(copied_data);
-    const frag = try Fragment.create(self.editor, .Allocator, copied_data);
+    const frag = try Fragment.create(self.editor, .allocator, copied_data);
     errdefer frag.ref().unref(self.editor);
     const node = try Node.create(self.editor, frag, 0, data.len);
     errdefer node.ref().unref(self.editor);
@@ -846,75 +928,61 @@ pub const Buffer = struct {
     if(start >= end) return;
     if(src.root == null) return error.OutOfBounds;
 
-    const node = if(self.editor.copy_cache.get(.{ .src = src.root.?, .start = start, .end = end })) |x| x else b: {
-      src.root.?.is_frozen = true;
-      const ab, const c = try src.root.?.split_ref(self.editor, end);
-      defer {
-        ab.?.unref(self.editor);
-        if(c) |x| x.unref(self.editor);
-      }
-      const a, const b = try ab.?.split_ref(self.editor, start);
-      defer {
-        if(a) |x| x.unref(self.editor);
-        b.?.unref(self.editor);
-      }
-
-      b.?.is_frozen = true; // …before we put it in the cache.
-      try self.editor.copy_cache.putNoClobber(.{ .src = src.root.?, .start = start, .end = end }, b.?.ref());
-
-      break :b b.?;
-    };
+    src.root.?.is_frozen = true;
+    const ab, const c = try src.root.?.split_ref(self.editor, end);
+    defer {
+      ab.?.unref(self.editor);
+      if(c) |x| x.unref(self.editor);
+    }
+    const a, const b = try ab.?.split_ref(self.editor, start);
+    defer {
+      if(a) |x| x.unref(self.editor);
+      b.?.unref(self.editor);
+    }
 
     if(self.root) |root| {
       self.root = null;
       defer root.unref(self.editor);
 
-      const a, const b = try root.split_ref(self.editor, offset);
+      const p, const q = try root.split_ref(self.editor, offset);
       defer {
-        if(a) |x| x.unref(self.editor);
-        if(b) |x| x.unref(self.editor);
+        if(p) |x| x.unref(self.editor);
+        if(q) |x| x.unref(self.editor);
       }
-      self.root = (try Node.merge(self.editor, try Node.merge(self.editor, a, node), b)).?.ref();
+      self.root = (try Node.merge(self.editor, try Node.merge(self.editor, p, b), q)).?.ref();
 
     } else {
       if(offset > 0) return error.OutOfBounds;
-      self.root = node.ref();
+      self.root = b.?.ref();
     }
   }
 };
 
 pub const Editor = struct {
   allocator: Allocator,
-  rng: std.Random.DefaultPrng,
 
   // This is actually a real configuration variable.
   max_open_size: usize = 100_000_000,
 
-  mmaps: std.ArrayList(*Fragment),
+  lock: std.Thread.Mutex = .{},
+  mmaps: std.ArrayList(*Fragment.Mmap),
   buffers: std.ArrayList(*Buffer),
   moved_mmapped_files: std.ArrayList(struct {
     dir_fd: posix.fd_t,
     name: [:0]u8,
   }),
+
   gio_async_ctx: *gio.GMainContext,
   were_mmaps_corrupted: bool = false,
-
-  copy_cache: std.AutoHashMap(struct {
-    src: *Node,
-    start: usize,
-    end: usize,
-  }, *Node),
 
   pub fn init(allocator: Allocator) Editor {
     var self: Editor = undefined;
     self = .{
       .allocator = allocator,
-      .rng = .init(@bitCast(@as(i64, @truncate(std.time.nanoTimestamp())))),
       .mmaps = .init(allocator),
       .buffers = .init(allocator),
       .moved_mmapped_files = .init(allocator),
       .gio_async_ctx = gio.g_main_context_new().?,
-      .copy_cache = .init(allocator),
     };
     return self;
   }
@@ -934,16 +1002,6 @@ pub const Editor = struct {
     }
     self.moved_mmapped_files.deinit();
     gio.g_main_context_unref(self.gio_async_ctx);
-    self.clear_copy_cache();
-    self.copy_cache.deinit();
-  }
-
-  pub fn clear_copy_cache(self: *Editor) void {
-    var iter = self.copy_cache.valueIterator();
-    while(iter.next()) |node| {
-      node.*.unref(self);
-    }
-    self.copy_cache.clearAndFree();
   }
 
   pub fn open(self: *Editor, path: []const u8, err_msg: ?*?[]u8) (GioError || posix.OpenError || posix.ReadError || posix.MMapError)!*Buffer {
@@ -963,7 +1021,7 @@ pub const Editor = struct {
       var data: []u8 = undefined;
       if(gio.g_file_load_contents(file, null, @ptrCast(&data.ptr), &data.len, null, &err) == 0) return handle_gio_error(err.?, self.allocator, err_msg);
       errdefer gio.g_free(data.ptr);
-      frag = try Fragment.create(self, .Glib, data);
+      frag = try Fragment.create(self, .glib, data);
 
     } else {
       const fd = try posix.openZ(path, .{ .ACCMODE = .RDONLY }, 0);
@@ -975,7 +1033,7 @@ pub const Editor = struct {
         var data = try self.allocator.alloc(u8, size);
         errdefer self.allocator.free(data);
         data.len = try posix.read(fd, data);
-        frag = try Fragment.create(self, .Allocator, data);
+        frag = try Fragment.create(self, .allocator, data);
 
       } else {
         const data = try posix.mmap(null, size, posix.PROT.READ, .{ .TYPE = .PRIVATE }, fd, 0);
@@ -998,7 +1056,7 @@ pub const Editor = struct {
   pub fn validate_mmaps(self: *Editor) bool {
     self.were_mmaps_corrupted = false;
     _ = gio.g_main_context_iteration(self.gio_async_ctx, 0);
-    return self.were_mmaps_corrupted;
+    return !self.were_mmaps_corrupted;
   }
 };
 

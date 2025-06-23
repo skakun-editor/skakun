@@ -104,15 +104,15 @@ fn broker_set_ordering(vm: *lua.Lua) i32 {
 fn broker_describe(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(*c.EnchantBroker, 1, "core.enchant.Broker").*;
   vm.setTop(2);
-  c.enchant_broker_describe(self, broker_describe_callback, vm);
+  c.enchant_broker_describe(self, @ptrCast(&broker_describe_callback), vm);
   if(vm.getTop() > 2) {
     vm.raiseError();
   }
   return 0;
 }
 
-fn broker_describe_callback(provider_name: [*c]const u8, provider_desc: [*c]const u8,
-                            provider_dll_file: [*c]const u8, user_data: ?*anyopaque) callconv(.C) void
+fn broker_describe_callback(provider_name: [*:0]const u8, provider_desc: [*:0]const u8,
+                            provider_dll_file: [*:0]const u8, user_data: ?*anyopaque) callconv(.C) void
 {
   const vm: *lua.Lua = @ptrCast(user_data.?);
   if(vm.getTop() > 2) return;
@@ -126,15 +126,15 @@ fn broker_describe_callback(provider_name: [*c]const u8, provider_desc: [*c]cons
 fn broker_list_dicts(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(*c.EnchantBroker, 1, "core.enchant.Broker").*;
   vm.setTop(2);
-  c.enchant_broker_list_dicts(self, broker_list_dicts_callback, vm);
+  c.enchant_broker_list_dicts(self, @ptrCast(&broker_list_dicts_callback), vm);
   if(vm.getTop() > 2) {
     vm.raiseError();
   }
   return 0;
 }
 
-fn broker_list_dicts_callback(lang_tag: [*c]const u8, provider_name: [*c]const u8,
-                              provider_desc: [*c]const u8, provider_file: [*c]const u8,
+fn broker_list_dicts_callback(lang_tag: [*:0]const u8, provider_name: [*:0]const u8,
+                              provider_desc: [*:0]const u8, provider_file: [*:0]const u8,
                               user_data: ?*anyopaque) callconv(.C) void
 {
   const vm: *lua.Lua = @ptrCast(user_data.?);
@@ -251,12 +251,12 @@ fn dict_is_word_character(vm: *lua.Lua) i32 {
 
 fn dict_describe(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(*c.EnchantDict, 1, "core.enchant.Dict").*;
-  c.enchant_dict_describe(self, dict_describe_callback, vm);
+  c.enchant_dict_describe(self, @ptrCast(&dict_describe_callback), vm);
   return 4;
 }
 
-fn dict_describe_callback(lang_tag: [*c]const u8, provider_name: [*c]const u8,
-                          provider_desc: [*c]const u8, provider_file: [*c]const u8,
+fn dict_describe_callback(lang_tag: [*:0]const u8, provider_name: [*:0]const u8,
+                          provider_desc: [*:0]const u8, provider_file: [*:0]const u8,
                           user_data: ?*anyopaque) callconv(.C) void
 {
   const vm: *lua.Lua = @ptrCast(user_data.?);
