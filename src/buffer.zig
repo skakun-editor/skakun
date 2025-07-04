@@ -28,12 +28,12 @@ const posix = std.posix;
 // set to an error message from GIO. The caller is reponsible for freeing
 // err_msg with the Editor's allocator afterwards.
 
-pub const Error = Allocator.Error || error {OutOfBounds, MultipleHardLinks} || GioError || posix.OpenError || posix.ReadError || posix.MMapError || posix.RealPathError || posix.RenameError;
+pub const Error = Allocator.Error || error {MultipleHardLinks, NegativeRange, OutOfBounds} || GioError || posix.OpenError || posix.ReadError || posix.MMapError || posix.RealPathError || posix.RenameError;
 
 threadlocal var rng: ?std.Random.DefaultPrng = null;
 fn random() std.Random {
   if(rng == null) {
-    rng = .init(@bitCast(@as(i64, @truncate(std.time.nanoTimestamp()))));
+    rng = .init(@truncate(@as(u128, @bitCast(std.time.nanoTimestamp()))));
   }
   return rng.?.random();
 }
@@ -391,7 +391,7 @@ const Node = struct {
     if(offset < self.value.len) {
       const data_slice = self.value.acquire()[offset .. @min(offset + dest.len - readc, self.value.len)];
       defer self.value.release();
-      @memcpy(dest[readc ..], data_slice);
+      @memcpy(dest[readc ..].ptr, data_slice);
       readc += data_slice.len;
       offset = 0;
     } else {
@@ -874,6 +874,7 @@ pub const Buffer = struct {
   }
 
   pub fn insert(self: *Buffer, offset: usize, data: []const u8) (Allocator.Error || error {OutOfBounds})!void {
+    if(offset > self.len()) return error.OutOfBounds;
     if(data.len <= 0) return;
 
     const copied_data = try self.editor.allocator.dupe(u8, data);
@@ -895,14 +896,14 @@ pub const Buffer = struct {
       self.root = (try Node.merge(self.editor, try Node.merge(self.editor, a, node), b)).?.ref();
 
     } else {
-      if(offset > 0) return error.OutOfBounds;
       self.root = node.ref();
     }
   }
 
-  pub fn delete(self: *Buffer, start: usize, end: usize) (Allocator.Error || error {OutOfBounds})!void {
-    if(start >= end) return;
-    if(self.root == null) return error.OutOfBounds;
+  pub fn delete(self: *Buffer, start: usize, end: usize) (Allocator.Error || error {NegativeRange, OutOfBounds})!void {
+    if(start > end) return error.NegativeRange;
+    if(end > self.len()) return error.OutOfBounds;
+    if(start == end) return;
 
     const root = self.root.?;
     self.root = null;
@@ -923,10 +924,11 @@ pub const Buffer = struct {
     }
   }
 
-  pub fn copy(self: *Buffer, offset: usize, src: *Buffer, start: usize, end: usize) (Allocator.Error || error {OutOfBounds})!void {
+  pub fn copy(self: *Buffer, offset: usize, src: *Buffer, start: usize, end: usize) (Allocator.Error || error {NegativeRange, OutOfBounds})!void {
     assert(self.editor == src.editor);
-    if(start >= end) return;
-    if(src.root == null) return error.OutOfBounds;
+    if(start > end) return error.NegativeRange;
+    if(offset > self.len() or end > src.len()) return error.OutOfBounds;
+    if(start == end) return;
 
     src.root.?.is_frozen = true;
     const ab, const c = try src.root.?.split_ref(self.editor, end);
@@ -952,7 +954,6 @@ pub const Buffer = struct {
       self.root = (try Node.merge(self.editor, try Node.merge(self.editor, p, b), q)).?.ref();
 
     } else {
-      if(offset > 0) return error.OutOfBounds;
       self.root = b.?.ref();
     }
   }

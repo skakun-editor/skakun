@@ -180,6 +180,40 @@ function utils.once(func, ...)
   end
 end
 
+function utils.binary_search_first(table, is_far_enough)
+  local left, right = 1, #table
+  while left <= right do
+    local mid = left + (right - left) // 2
+    if is_far_enough(table[mid]) then
+      right = mid
+      if left == right then
+        return table[left], left
+      end
+    else
+      left = mid + 1
+    end
+  end
+end
+
+function utils.binary_search_last(table, is_near_enough)
+  local left, right = 1, #table
+  while left <= right do
+    local mid = left + (right - left + 1) // 2
+    if is_near_enough(table[mid]) then
+      left = mid
+      if left == right then
+        return table[left], left
+      end
+    else
+      right = mid - 1
+    end
+  end
+end
+
+function utils.is_point_in_rect(x, y, left, top, right, bottom)
+  return left <= x and x <= right and top <= y and y <= bottom
+end
+
 utils.Themer = {}
 utils.Themer.__index = utils.Themer
 
@@ -215,6 +249,363 @@ function utils.Themer:unapply(...)
     object[key] = old_value
   end
   self.saved = nil
+end
+
+-- Reference: Hirai, Y. & Yamamoto, K. (2011) "Balancing weight-balanced trees", Journal of Functional Programming
+
+utils.Set = {}
+utils.Set.__index = utils.Set
+
+function utils.Set.new(cmp)
+  return setmetatable({
+    cmp = cmp or function(a, b) return a < b end,
+    root = nil,
+  }, utils.Set)
+end
+
+function utils.Set:insert(value)
+  local node = {
+    value = value,
+    parent = nil,
+    left = nil,
+    right = nil,
+    size = 1,
+  }
+  if not self.root then
+    self.root = node
+    return node
+  end
+
+  local parent = self.root
+  while parent do
+    node.parent = parent
+    if self.cmp(value, parent.value) then
+      parent = parent.left
+    elseif self.cmp(parent.value, value) then
+      parent = parent.right
+    else
+      return nil
+    end
+  end
+
+  local parent = node.parent
+  if self.cmp(value, parent.value) then
+    self:set_left(parent, node)
+  else
+    self:set_right(parent, node)
+  end
+  self:balance_path_to_root(parent)
+
+  return node
+end
+
+function utils.Set:find(value)
+  local node = self.root
+  while node do
+    if self.cmp(value, node.value) then
+      node = node.left
+    elseif self.cmp(node.value, value) then
+      node = node.right
+    else
+      return node
+    end
+  end
+  return nil
+end
+
+function utils.Set:first()
+  local node = self.root
+  if node then
+    while node.left do
+      node = node.left
+    end
+  end
+  return node
+end
+
+function utils.Set:last()
+  local node = self.root
+  if node then
+    while node.right do
+      node = node.right
+    end
+  end
+  return node
+end
+
+function utils.Set:__len()
+  return self.root and self.root.size or 0
+end
+
+function utils.Set:next(node)
+  if node.right then
+    node = node.right
+    while node.left do
+      node = node.left
+    end
+  else
+    while node.parent and node == node.parent.right do
+      node = node.parent
+    end
+    node = node.parent
+  end
+  return node
+end
+
+function utils.Set:prev(node)
+  if node.left then
+    node = node.left
+    while node.right do
+      node = node.right
+    end
+  else
+    while node.parent and node == node.parent.left do
+      node = node.parent
+    end
+    node = node.parent
+  end
+  return node
+end
+
+function utils.Set:remove(node)
+  local parent = node.parent
+  if not parent then
+    self.root = nil
+  elseif node == parent.left then
+    self:set_left(parent, nil)
+  else
+    self:set_right(parent, nil)
+  end
+  self:balance_path_to_root(parent)
+  return node.value
+end
+
+function utils.Set:balance_path_to_root(node)
+  local function weight(node)
+    return (node and node.size or 0) + 1
+  end
+  while node do
+    if 5 * weight(node.left) < 2 * weight(node.right) then
+      if 2 * weight(node.right.left) < 3 * weight(node.right.right) then
+        self:rotate_right(node)
+      else
+        self:rotate_left(node.right)
+        self:rotate_right(node)
+      end
+      node = node.parent
+    elseif 2 * weight(node.left) > 5 * weight(node.right) then
+      if 3 * weight(node.left.left) > 2 * weight(node.left.right) then
+        self:rotate_left(node)
+      else
+        self:rotate_right(node.left)
+        self:rotate_left(node)
+      end
+      node = node.parent
+    end
+    node.size = 1 + (node.left and node.left.size or 0) + (node.right and node.right.size or 0)
+    node = node.parent
+  end
+end
+
+function utils.Set:rotate_left(node)
+  local child, parent = node.left, node.parent
+  self:set_left(node, child.right)
+  self:set_right(child, node)
+  if not parent then
+    self.root = child
+    child.parent = nil
+  elseif node == parent.left then
+    self:set_left(parent, child)
+  else
+    self:set_right(parent, child)
+  end
+end
+
+function utils.Set:rotate_right(node)
+  local child, parent = node.right, node.parent
+  self:set_right(node, child.left)
+  self:set_left(child, node)
+  if not parent then
+    self.root = child
+    child.parent = nil
+  elseif node == parent.left then
+    self:set_left(parent, child)
+  else
+    self:set_right(parent, child)
+  end
+end
+
+function utils.Set:set_left(node, child)
+  node.left = child
+  if node.left then
+    node.left.parent = node
+    node.size = 1 + node.left.size + (node.right and node.right.size or 0)
+  else
+    node.size = 1 + (node.right and node.right.size or 0)
+  end
+end
+
+function utils.Set:set_right(node, child)
+  node.right = child
+  if node.right then
+    node.right.parent = node
+    node.size = 1 + (node.left and node.left.size or 0) + node.right.size
+  else
+    node.size = 1 + (node.left and node.left.size or 0)
+  end
+end
+
+
+
+utils.Treap = {}
+utils.Treap.__index = utils.Treap
+
+function utils.Treap.new(cmp)
+  return setmetatable({
+    cmp = cmp or function(a, b) return a < b end,
+    root = nil,
+  }, utils.Treap)
+end
+
+function utils.Treap:insert(value)
+  local node, parent = self.root, nil
+  while node do
+    parent = node
+    if self.cmp(value, node.value) then
+      node = node.left
+    elseif self.cmp(node.value, value) then
+      node = node.right
+    else
+      return nil
+    end
+  end
+
+  local node = {
+    value = value,
+    priority = math.random(0),
+    parent = nil,
+    left = nil,
+    right = nil,
+    size = 1,
+  }
+
+  while parent and parent.priority <= node.priority do
+    local child = parent
+    parent = child.parent
+    if self.cmp(child.value, value) then
+      self:set_right(child, node.left)
+      self:set_left(node, child)
+    else
+      self:set_left(child, node.right)
+      self:set_right(node, child)
+    end
+  end
+
+  if not parent then
+    self.root = node
+  elseif self.cmp(value, parent.value) then
+    self:set_left(parent, node)
+  else
+    self:set_right(parent, node)
+  end
+
+  while parent do
+    parent.size = 1 + (parent.left and parent.left.size or 0) + (parent.right and parent.right.size or 0)
+    parent = parent.parent
+  end
+
+  return node
+end
+
+function utils.Treap:find(value)
+  local node = self.root
+  while node do
+    if self.cmp(value, node.value) then
+      node = node.left
+    elseif self.cmp(node.value, value) then
+      node = node.right
+    else
+      return node
+    end
+  end
+  return nil
+end
+
+function utils.Treap:first()
+  local node = self.root
+  if node then
+    while node.left do
+      node = node.left
+    end
+  end
+  return node
+end
+
+function utils.Treap:last()
+  local node = self.root
+  if node then
+    while node.right do
+      node = node.right
+    end
+  end
+  return node
+end
+
+function utils.Treap:__len()
+  return self.root and self.root.size or 0
+end
+
+function utils.Treap:next(node)
+  if node.right then
+    node = node.right
+    while node.left do
+      node = node.left
+    end
+  else
+    while node.parent and node == node.parent.right do
+      node = node.parent
+    end
+    node = node.parent
+  end
+  return node
+end
+
+function utils.Treap:prev(node)
+  if node.left then
+    node = node.left
+    while node.right do
+      node = node.right
+    end
+  else
+    while node.parent and node == node.parent.left do
+      node = node.parent
+    end
+    node = node.parent
+  end
+  return node
+end
+
+function utils.Treap:remove(node)
+end
+
+function utils.Treap:set_left(node, child)
+  node.left = child
+  if node.left then
+    node.left.parent = node
+    node.size = 1 + node.left.size + (node.right and node.right.size or 0)
+  else
+    node.size = 1 + (node.right and node.right.size or 0)
+  end
+end
+
+function utils.Treap:set_right(node, child)
+  node.right = child
+  if node.right then
+    node.right.parent = node
+    node.size = 1 + (node.left and node.left.size or 0) + node.right.size
+  else
+    node.size = 1 + (node.left and node.left.size or 0)
+  end
 end
 
 return utils

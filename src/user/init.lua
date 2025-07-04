@@ -17,9 +17,41 @@ local gruvbox_light = require('theme.gruvbox_light')
 
 -- core.should_forward_stderr_on_exit = false
 utils.lock_globals()
-table.insert(core.cleanups, tty.restore)
-tty.setup()
+--[[table.insert(core.cleanups, tty.restore)
+tty.setup()]]--
 
+local function timeit(name, func)
+  local start = utils.timer()
+  func()
+  local result = utils.timer() - start
+  stderr.info(here, name, ' done in ', math.floor(1e3 * result), 'ms')
+  return result
+end
+local set = utils.Set.new()
+local a = timeit('WBT tree insert', function()
+  for i = 1, 1e5 do
+    set:insert(math.random(0, 10000))
+  end
+end)
+local b = timeit('WBT tree find', function()
+  for i = 1, 1e6 do
+    set:find(math.random(0, 10000))
+  end
+end)
+local set = utils.Treap.new()
+local c = timeit('treap insert', function()
+  for i = 1, 1e5 do
+    set:insert(math.random(0, 10000))
+  end
+end)
+local d = timeit('treap find', function()
+  for i = 1, 1e6 do
+    set:find(math.random(0, 10000))
+  end
+end)
+stderr.info(here, a / c, ' ', d / b)
+
+--[[
 thread.new(xpcall, treesitter.load_pkgs, function(err)
   stderr.error(here, debug.traceback(err))
 end, {
@@ -55,7 +87,7 @@ end, {
   'https://github.com/tree-sitter-grammars/tree-sitter-zig',
 })
 
-local root = DocView.new(Doc.open(core.args[2]))
+local root = DocView.new(core.args[2] and Doc.open(core.args[2]) or Doc.new())
 local theme = dracula
 theme.apply()
 
@@ -87,8 +119,8 @@ while true do
           theme.apply()
         end
       end
-      should_redraw = true
     end
+    should_redraw = true
     root:handle_event(event)
   end
 
@@ -110,3 +142,4 @@ while true do
     os.execute('sleep 0.01')
   end
 end
+]]--

@@ -21,17 +21,21 @@ Doc.__index = Doc
 
 function Doc.new()
   local self = setmetatable({
+    buffer = nil,
+    set_buffer_log = {},
     path = nil,
   }, Doc)
-  self.buffer = DocBuffer.new(self)
+  self:set_buffer(DocBuffer.new(self))
   return self
 end
 
 function Doc.open(path)
   local self = setmetatable({
+    buffer = nil,
+    set_buffer_log = {},
     path = path,
   }, Doc)
-  self.buffer = DocBuffer.open(path, self)
+  self:set_buffer(DocBuffer.open(self, path))
   return self
 end
 
@@ -43,6 +47,13 @@ function Doc:save(path)
   else
     self.buffer:save(self.path)
   end
+end
+
+function Doc:set_buffer(buffer)
+  assert(buffer.doc == self)
+  buffer:freeze()
+  self.buffer = buffer
+  table.insert(self.set_buffer_log, buffer)
 end
 
 return Doc

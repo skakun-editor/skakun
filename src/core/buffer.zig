@@ -56,6 +56,7 @@ fn raise_err(vm: *lua.Lua, err: buffer.Error, err_msg: ?[]u8) noreturn {
     error.MultipleHardLinks => "file has multiple hard links",
     error.NameServerFailure => "unknown failure in name resolution",
     error.NameTooLong => "file name too long",
+    error.NegativeRange => "negative range",
     error.NetworkNotFound => "no such file or directory on network",
     error.NetworkUnreachable => "network is unreachable",
     error.NoDevice => "no such device",
@@ -104,7 +105,7 @@ fn open(vm: *lua.Lua) i32 {
   assert(vm.getSubtable(lua.registry_index, "_LOADED"));
   assert(vm.getSubtable(-1, "core.buffer"));
   _ = vm.getField(-1, "max_open_size");
-  editor.max_open_size = @intCast(vm.checkInteger(-1));
+  editor.max_open_size = @intCast(@max(vm.checkInteger(-1), 0));
   vm.pop(3);
 
   var err_msg: ?[]u8 = null;
@@ -135,15 +136,16 @@ fn read(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(*Buffer, 1, "core.buffer").*;
   const from = vm.checkInteger(2);
   const to = vm.checkInteger(3);
-  if(from > to) {
+  if(to - from + 1 < 0) {
+    raise_err(vm, error.NegativeRange, null);
+  } else if(from < 1 or to > self.len()) {
+    raise_err(vm, error.OutOfBounds, null);
+  } else if(from > to) {
     _ = vm.pushString("");
     return 1;
   }
-  if(to > self.len()) {
-    raise_err(vm, error.OutOfBounds, null);
-  }
   var result: lua.Buffer = undefined;
-  const readc = self.read(@intCast(from - 1), result.initSize(vm, @intCast(to - from + 1))) catch |err| raise_err(vm, err, null);
+  const readc = self.read(@bitCast(from - 1), result.initSize(vm, @intCast(to - from + 1))) catch |err| raise_err(vm, err, null);
   assert(readc == to - from + 1);
   result.pushResultSize(readc);
   return 1;
@@ -152,7 +154,7 @@ fn read(vm: *lua.Lua) i32 {
 fn iter(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(*Buffer, 1, "core.buffer").*;
   const from = vm.optInteger(2) orelse 1;
-  vm.newUserdata(Buffer.Iterator, 0).* = self.iter(@intCast(from - 1)) catch |err| raise_err(vm, err, null);
+  vm.newUserdata(Buffer.Iterator, 0).* = self.iter(@bitCast(from - 1)) catch |err| raise_err(vm, err, null);
   vm.setMetatableRegistry("core.buffer.iter");
   return 1;
 }
@@ -161,7 +163,7 @@ fn insert(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(*Buffer, 1, "core.buffer").*;
   const idx = vm.checkInteger(2);
   const data = vm.checkString(3);
-  self.insert(@intCast(idx - 1), data) catch |err| raise_err(vm, err, null);
+  self.insert(@bitCast(idx - 1), data) catch |err| raise_err(vm, err, null);
   return 0;
 }
 
@@ -169,7 +171,7 @@ fn delete(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(*Buffer, 1, "core.buffer").*;
   const from = vm.checkInteger(2);
   const to = vm.checkInteger(3);
-  self.delete(@intCast(from - 1), @intCast(to)) catch |err| raise_err(vm, err, null);
+  self.delete(@bitCast(from - 1), @bitCast(to)) catch |err| raise_err(vm, err, null);
   return 0;
 }
 
@@ -179,7 +181,10 @@ fn copy(vm: *lua.Lua) i32 {
   const src = vm.checkUserdata(*Buffer, 3, "core.buffer").*;
   const from = vm.checkInteger(4);
   const to = vm.checkInteger(5);
-  self.copy(@intCast(idx - 1), src, @intCast(from - 1), @intCast(to)) catch |err| raise_err(vm, err, null);
+  if(from < 1) {
+    raise_err(vm, error.OutOfBounds, null);
+  }
+  self.copy(@bitCast(idx - 1), src, @bitCast(from - 1), @bitCast(to)) catch |err| raise_err(vm, err, null);
   return 0;
 }
 
@@ -243,6 +248,9 @@ fn prev(vm: *lua.Lua) i32 {
 fn rewind(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(Buffer.Iterator, 1, "core.buffer.iter");
   const count = vm.checkInteger(2);
+  if(count < 0) {
+    vm.raiseErrorStr("count is negative", .{});
+  }
   self.rewind(@intCast(count)) catch |err| raise_err(vm, err, null);
   return 0;
 }

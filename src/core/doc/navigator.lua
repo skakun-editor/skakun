@@ -43,12 +43,16 @@ function Navigator.new(buffer)
     local_cache = Navigator.Cache.new(),
     global_cache = Navigator.Cache.new(),
   }, Navigator)
-  self.global_cache:insert({ byte = 1, line = 1, col = 1, last_tab = nil })
+  self.global_cache:insert({ byte = 1, grapheme = 1, line = 1, col = 1, last_tab = nil })
   return self
 end
 
 function Navigator:locate_byte(byte)
   return self:locate(function(loc) return loc.byte > byte end)
+end
+
+function Navigator:locate_grapheme(grapheme)
+  return self:locate(function(loc) return loc.grapheme > grapheme end)
 end
 
 function Navigator:locate_line_col(line, col)
@@ -77,6 +81,7 @@ function Navigator:locate(is_too_far)
     end
 
     after.byte = before.byte + iter:last_advance()
+    after.grapheme = before.grapheme + 1
     if grapheme == '\n' then
       after.line = before.line + 1
       after.col = 1
