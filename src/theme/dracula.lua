@@ -29,6 +29,9 @@ function dracula.apply()
     DocView.faces, 'normal', theme.faces.normal,
     DocView.faces, 'invalid', theme.faces.invalid,
     DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
+    DocView.colors, 'cursor', theme.colors.cursor,
+    DocView.colors, 'cursor_foreground', theme.colors.cursor_foreground,
+    DocView.colors, 'selection', theme.colors.selection,
     DocView.colors, 'misspelling', theme.colors.red
   )
 end
@@ -64,30 +67,36 @@ end
 
 function dracula.regenerate()
   dracula.true_color = dracula.from({
-    background = rgb'282A36',
-    foreground = rgb'F8F8F2',
-    selection  = rgb'44475A',
-    comment    = rgb'6272A4',
-    red        = rgb'FF5555',
-    orange     = rgb'FFB86C',
-    yellow     = rgb'F1FA8C',
-    green      = rgb'50FA7B',
-    purple     = rgb'BD93F9',
-    cyan       = rgb'8BE9FD',
-    pink       = rgb'FF79C6',
+    background        = rgb'282A36',
+    foreground        = rgb'F8F8F2',
+    selection         = rgb'44475A',
+    comment           = rgb'6272A4',
+    red               = rgb'FF5555',
+    orange            = rgb'FFB86C',
+    yellow            = rgb'F1FA8C',
+    green             = rgb'50FA7B',
+    purple            = rgb'BD93F9',
+    cyan              = rgb'8BE9FD',
+    pink              = rgb'FF79C6',
+
+    cursor            = rgb'AEAFAD',
+    cursor_foreground = rgb'515052',
   })
   dracula.ansi = dracula.from({
-    background = 'black',
-    foreground = 'bright_white',
-    selection  = 'bright_black',
-    comment    = 'bright_black',
-    red        = 'bright_red',
-    orange     = 'yellow',
-    yellow     = 'bright_yellow',
-    green      = 'bright_green',
-    purple     = 'magenta',
-    cyan       = 'bright_cyan',
-    pink       = 'bright_magenta',
+    background        = 'black',
+    foreground        = 'bright_white',
+    selection         = 'bright_black',
+    comment           = 'bright_black',
+    red               = 'bright_red',
+    orange            = 'yellow',
+    yellow            = 'bright_yellow',
+    green             = 'bright_green',
+    purple            = 'magenta',
+    cyan              = 'bright_cyan',
+    pink              = 'bright_magenta',
+
+    cursor            = 'white',
+    cursor_foreground = 'bright_black',
   })
 end
 

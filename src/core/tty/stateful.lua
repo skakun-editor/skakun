@@ -29,8 +29,8 @@ if core.platform == 'windows' then
 end
 local utils       = require('core.utils')
 
--- HACK: filter CRs and DELs
 -- BUG: fix arrow key repeats in Kitty
+-- BUG: fix some perf issues and bugs in xterm and st
 
 local tty = setmetatable({
   ansi_colors = {

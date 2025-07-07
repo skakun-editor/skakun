@@ -59,15 +59,19 @@ function Navigator:locate_line_col(line, col)
   return self:locate(function(loc) return loc.line == line and loc.col > col or loc.line > line end)
 end
 
-function Navigator:locate_nearest_tab(byte)
-  return self:locate(function(loc) return loc.last_tab and loc.last_tab >= byte end)
+function Navigator:locate_next_tab(byte)
+  return self:locate(function(loc) return loc.last_tab and loc.last_tab > byte end)
 end
 
 function Navigator:locate(is_too_far)
   local a = self.local_cache:search(is_too_far)
   local b = self.global_cache:search(is_too_far)
+  local start = a and a.byte > b.byte and a or b
+  if not start then
+    return nil
+  end
 
-  local before = utils.copy(a and a.byte > b.byte and a or b)
+  local before = utils.copy(start)
   local iter = self.buffer:iter(before.byte)
   local after = utils.copy(before)
   local last_global_insert = b.byte

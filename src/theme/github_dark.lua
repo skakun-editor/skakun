@@ -29,7 +29,10 @@ function github_dark.apply()
     DocView.faces, 'normal', theme.faces.normal,
     DocView.faces, 'invalid', theme.faces.invalid_illegal,
     DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
-    DocView.colors, 'step_error_text', theme.colors.step_error_text
+    DocView.colors, 'cursor', theme.colors.cursor,
+    DocView.colors, 'cursor_foreground', theme.colors.cursor_fg,
+    DocView.colors, 'selection', theme.colors.selection_bg,
+    DocView.colors, 'misspelling', theme.colors.step_error_text
   )
 end
 
@@ -77,6 +80,9 @@ function github_dark.regenerate()
     invalid_illegal_bg   = rgb'8e1519',
     string_regexp        = rgb'7ee787',
     step_error_text      = rgb'f85149',
+    cursor               = rgb'e6edf3',
+    cursor_fg            = rgb'0d1117',
+    selection_bg         = rgb'1e4173',
   })
   github_dark.ansi = github_dark.from({
     text                 = 'white',
@@ -92,6 +98,9 @@ function github_dark.regenerate()
     invalid_illegal_bg   = 'red',
     string_regexp        = 'bright_green',
     step_error_text      = 'bright_red',
+    cursor               = 'white',
+    cursor_fg            = 'black',
+    selection_bg         = 'blue',
   })
 end
 

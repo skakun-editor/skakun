@@ -20,23 +20,28 @@ Widget.__index = Widget
 function Widget.new()
   return setmetatable({
     parent = nil,
-    left = nil,
-    top = nil,
-    right = nil,
-    bottom = nil,
+    x = nil,
+    y = nil,
+    width = nil,
+    height = nil,
+    drawn = nil,
   }, Widget)
 end
 
-function Widget:compute_layout() end
-function Widget:draw() end
-function Widget:handle_event() end
-
-function Widget:width()
-  return self.right - self.left + 1
+function Widget:draw()
+  self.drawn = {
+    x = self.x,
+    y = self.y,
+    width = self.width,
+    height = self.height,
+  }
 end
 
-function Widget:height()
-  return self.bottom - self.top + 1
+function Widget:handle_event() end
+
+function Widget:drawn_bounds()
+  local drawn = self.drawn
+  return drawn.x, drawn.y, drawn.x + drawn.width - 1, drawn.y + drawn.height - 1
 end
 
 return Widget

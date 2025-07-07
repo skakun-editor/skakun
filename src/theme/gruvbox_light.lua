@@ -30,6 +30,9 @@ function gruvbox_light.apply()
     DocView.faces, 'normal', theme.faces.normal,
     DocView.faces, 'invalid', theme.faces.invalid,
     DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
+    DocView.colors, 'cursor', theme.colors.fg1,
+    DocView.colors, 'cursor_foreground', theme.colors.bg2,
+    DocView.colors, 'selection', theme.colors.bg1,
     DocView.colors, 'misspelling', theme.colors.red
   )
 end
@@ -76,10 +79,10 @@ function gruvbox_light.regenerate(contrast)
   end
   gruvbox_light.true_color = gruvbox_dark.from({
     bg0    = bg0,
-    fg1    = rgb'ebdbb2',
-    fg2    = rgb'd5c4a1',
-    fg3    = rgb'bdae93',
-    fg4    = rgb'a89984',
+    bg1    = rgb'ebdbb2',
+    bg2    = rgb'd5c4a1',
+    bg3    = rgb'bdae93',
+    bg4    = rgb'a89984',
 
     gray   = rgb'928374',
 
@@ -99,10 +102,10 @@ function gruvbox_light.regenerate(contrast)
   })
   gruvbox_light.ansi = gruvbox_dark.from({
     bg0    = 'bright_white',
-    bg1    = 'bright_white',
-    bg2    = 'bright_white',
-    bg3    = 'bright_white',
-    bg4    = 'bright_white',
+    bg1    = 'white',
+    bg2    = 'white',
+    bg3    = 'white',
+    bg4    = 'white',
 
     gray   = 'bright_black',
 

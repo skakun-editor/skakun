@@ -170,9 +170,27 @@ fn flush(vm: *lua.Lua) i32  {
 fn read(vm: *lua.Lua) i32  {
   if(!is_open) vm.raiseErrorStr("tty is closed", .{});
   const allocator = vm.allocator();
-  const data = reader.readAllAlloc(allocator, 1_000_000) catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr}); // An arbitrary limit of 1MB
+  // A tight limit of 4KiB so as not to punish quadratic algorithms downstream.
+  const data = reader.readAllAlloc(allocator, 4096) catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
   defer allocator.free(data);
   _ = vm.pushString(data);
+  return 1;
+}
+
+fn wait_for_read(vm: *lua.Lua) i32 {
+  if(!is_open) vm.raiseErrorStr("tty is closed", .{});
+  const timeout = vm.optNumber(1);
+  var fds = [_]posix.pollfd{.{
+    .fd = (if(builtin.os.tag == .windows) file.in else file).handle,
+    .events = posix.POLL.IN,
+    .revents = 0,
+  }};
+  _ = posix.poll(&fds, @intFromFloat(1e3 * (timeout orelse -1))) catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
+  if(fds[0].revents == posix.POLL.IN) {
+    vm.pushBoolean(true);
+  } else {
+    vm.pushFail();
+  }
   return 1;
 }
 
@@ -269,6 +287,7 @@ const funcs = [_]lua.FnReg{
   .{ .name = "write", .func = lua.wrap(write) },
   .{ .name = "flush", .func = lua.wrap(flush) },
   .{ .name = "read", .func = lua.wrap(read) },
+  .{ .name = "wait_for_read", .func = lua.wrap(wait_for_read) },
   .{ .name = "get_size", .func = lua.wrap(get_size) },
   .{ .name = "width_of", .func = lua.wrap(width_of) },
 

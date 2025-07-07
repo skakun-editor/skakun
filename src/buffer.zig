@@ -781,16 +781,20 @@ pub const Buffer = struct {
   }
 
   pub fn save_z(self: *Buffer, path: [*:0]const u8, err_msg: ?*?[]u8) (GioError || posix.OpenError || posix.RealPathError || posix.RenameError || error {MultipleHardLinks})!void {
-    var err: ?*gio.GError = null;
-
-    var output: *gio.GOutputStream = undefined;
     if(gio.g_uri_is_valid(path, gio.G_URI_FLAGS_NONE, null) != 0) {
       const file = gio.g_file_new_for_uri(path);
       defer gio.g_object_unref(file);
-      output = @ptrCast(gio.g_file_replace(file, null, 0, gio.G_FILE_CREATE_NONE, null, &err) orelse return handle_gio_error(err.?, self.editor.allocator, err_msg));
+      var err: ?*gio.GError = null;
+      const output = gio.g_file_replace(file, null, 0, gio.G_FILE_CREATE_NONE, null, &err) orelse return handle_gio_error(err.?, self.editor.allocator, err_msg);
+      defer gio.g_object_unref(output);
+      if(self.root) |x| {
+        try x.save(self.editor, @ptrCast(output), err_msg);
+      }
+      if(gio.g_output_stream_close(@ptrCast(output), null, &err) == 0) return handle_gio_error(err.?, self.editor.allocator, err_msg);
 
     } else {
-      var fd: posix.fd_t = undefined;
+      var fd: ?posix.fd_t = null;
+      defer if(fd) |x| posix.close(x);
 
       // This whole mess is here just to prevent us from overwriting existing
       // files mmapped by us, which would corrupt the mmaps in question. To
@@ -804,23 +808,20 @@ pub const Buffer = struct {
       // This is morally wrong: https://insanecoding.blogspot.com/2007/11/pathmax-simply-isnt.html
       var buf: [std.fs.max_path_bytes]u8 = undefined;
       // This does return error.FileNotFound even if a symlink exists but is broken.
-      const maybe_real_path = posix.realpathZ(path, &buf) catch |x| if(x == error.FileNotFound) null else return x;
+      const real_path = posix.realpathZ(path, &buf);
 
-      if(maybe_real_path) |real_path| {
-        const dir_path = std.fs.path.dirname(real_path) orelse {
-          return error.IsDir;
-        };
-        const name = std.fs.path.basename(real_path);
+      if(real_path == error.FileNotFound) {
+        fd = try posix.openZ(path, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true }, std.fs.File.default_mode);
 
+      } else {
+        const dir_path = std.fs.path.dirname(try real_path) orelse return error.IsDir;
         const dir_fd = try posix.open(dir_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, 0);
         var should_close_dir_fd = true;
         defer if(should_close_dir_fd) posix.close(dir_fd);
 
+        const name = std.fs.path.basename(real_path catch unreachable);
         fd = try posix.openat(dir_fd, name, .{ .ACCMODE = .WRONLY }, 0);
-        var should_close_fd = true;
-        defer if(should_close_fd) posix.close(fd);
-
-        const stat = try posix.fstat(fd);
+        const stat = try posix.fstat(fd.?);
 
         var is_mmap = false;
         self.editor.lock.lock();
@@ -838,9 +839,7 @@ pub const Buffer = struct {
           // same time we can't do that because it's mmapped and doing that
           // would corrupt buffers, including maybe even this very one that
           // we're trying to save.
-          if(stat.nlink > 1) {
-            return error.MultipleHardLinks;
-          }
+          if(stat.nlink > 1) return error.MultipleHardLinks;
 
           const new_name = try std.fmt.allocPrintZ(self.editor.allocator, ".{s}.skak-{x:0>8}", .{name, random().int(u32)});
           try posix.renameat(dir_fd, name, dir_fd, new_name);
@@ -848,29 +847,24 @@ pub const Buffer = struct {
             self.editor.lock.lock();
             defer self.editor.lock.unlock();
             try self.editor.moved_mmapped_files.append(.{ .dir_fd = dir_fd, .name = new_name });
+            should_close_dir_fd = false;
           }
-          should_close_dir_fd = false;
 
-          posix.close(fd);
-          should_close_fd = false;
+          posix.close(fd.?);
+          fd = null;
           fd = try posix.openat(dir_fd, name, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true }, stat.mode);
-
-        } else {
-          should_close_fd = false;
         }
-
-      } else {
-        fd = try posix.openZ(path, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true }, std.fs.File.default_mode);
       }
 
-      output = gio.g_unix_output_stream_new(fd, 1);
+      const output = gio.g_unix_output_stream_new(fd.?, 0);
+      defer gio.g_object_unref(output);
+      if(self.root) |x| {
+        try x.save(self.editor, output, err_msg);
+      }
+      if(posix.lseek_CUR_get(fd.?)) |size| {
+        try posix.ftruncate(fd.?, size);
+      } else |err| if(err != error.Unseekable) return @errorCast(err);
     }
-    defer gio.g_object_unref(output);
-
-    if(self.root) |x| {
-      try x.save(self.editor, output, err_msg);
-    }
-    if(gio.g_output_stream_close(output, null, &err) == 0) return handle_gio_error(err.?, self.editor.allocator, err_msg);
   }
 
   pub fn insert(self: *Buffer, offset: usize, data: []const u8) (Allocator.Error || error {OutOfBounds})!void {

@@ -29,6 +29,9 @@ function gruvbox_dark.apply()
     DocView.faces, 'normal', theme.faces.normal,
     DocView.faces, 'invalid', theme.faces.invalid,
     DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
+    DocView.colors, 'cursor', theme.colors.fg1,
+    DocView.colors, 'cursor_foreground', theme.colors.bg3,
+    DocView.colors, 'selection', theme.colors.bg2,
     DocView.colors, 'misspelling', theme.colors.red
   )
 end
@@ -99,9 +102,9 @@ function gruvbox_dark.regenerate(contrast)
   gruvbox_dark.ansi = gruvbox_dark.from({
     bg0    = 'black',
     bg1    = 'black',
-    bg2    = 'black',
-    bg3    = 'black',
-    bg4    = 'black',
+    bg2    = 'bright_black',
+    bg3    = 'bright_black',
+    bg4    = 'bright_black',
 
     gray   = 'bright_black',
 
