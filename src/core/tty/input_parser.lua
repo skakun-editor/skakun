@@ -529,7 +529,7 @@ function InputParser:take_functional_key_with_mods(buf, offset)
 end
 
 function InputParser:take_shift_tab(buf, offset)
-  if buf:match('^\27%[Z', offset) then
+  if buf:find('^\27%[Z', offset) then
     return {
       { type = 'press',   button = 'tab', alt = false, ctrl = false, shift = true },
       { type = 'release', button = 'tab', alt = false, ctrl = false, shift = true },
@@ -541,7 +541,7 @@ end
 
 function InputParser:take_paste(buf, offset)
   -- Reference: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Bracketed-Paste-Mode
-  if not buf:match('^\27%[200~', offset) then
+  if not buf:find('^\27%[200~', offset) then
     return nil, offset
   end
   local end_offset = buf:find('\27[201~', offset, true)

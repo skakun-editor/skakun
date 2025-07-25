@@ -1,59 +1,39 @@
 local here = ...
-local core          = require('core')
-local Buffer        = require('core.buffer')
-local Doc           = require('core.doc')
-local stderr        = require('core.stderr')
-local treesitter    = require('core.treesitter')
-local tty           = require('core.tty')
-local DocView       = require('core.ui.doc_view')
-local utils         = require('core.utils')
-local dracula       = require('theme.dracula')
-local github_dark   = require('theme.github_dark')
-local github_light  = require('theme.github_light')
-local gruvbox_dark  = require('theme.gruvbox_dark')
-local gruvbox_light = require('theme.gruvbox_light')
+local core              = require('core')
+local Buffer            = require('core.buffer')
+local Doc               = require('core.doc')
+local SyntaxHighlighter = require('core.doc.syntax_highlighter')
+local stderr            = require('core.stderr')
+local treesitter        = require('core.treesitter')
+local tty               = require('core.tty')
+local DocView           = require('core.ui.doc_view')
+local utils             = require('core.utils')
+local dracula           = require('theme.dracula')
+local github_dark       = require('theme.github_dark')
+local github_light      = require('theme.github_light')
+local gruvbox_dark      = require('theme.gruvbox_dark')
+local gruvbox_light     = require('theme.gruvbox_light')
 
 -- TODO: display syntax group under cursor
 -- TODO: commands under F1
+-- TODO: logo
+-- HACK: update docs when you're finished lol
+-- TODO: autosave when idle
 
 core.should_forward_stderr_on_exit = false
 utils.lock_globals()
 table.insert(core.cleanups, tty.restore)
 tty.setup()
 
+SyntaxHighlighter.is_debug = true
+
 thread.new(xpcall, treesitter.load_pkgs, function(err)
   stderr.error(here, debug.traceback(err))
 end, {
-  -- You can find more parsers here: https://github.com/tree-sitter/tree-sitter/wiki/List-of-parsers
-  'https://github.com/tree-sitter/tree-sitter-agda',
-  'https://github.com/tree-sitter/tree-sitter-bash',
-  'https://github.com/tree-sitter/tree-sitter-c',
-  'https://github.com/tree-sitter/tree-sitter-cpp',
-  'https://github.com/tree-sitter/tree-sitter-c-sharp',
-  'https://github.com/tree-sitter/tree-sitter-css',
-  'https://github.com/tree-sitter/tree-sitter-embedded-template',
-  'https://github.com/tree-sitter/tree-sitter-go',
-  'https://github.com/tree-sitter/tree-sitter-haskell',
-  'https://github.com/tree-sitter/tree-sitter-html',
-  'https://github.com/tree-sitter/tree-sitter-java',
-  'https://github.com/tree-sitter/tree-sitter-javascript',
-  'https://github.com/tree-sitter/tree-sitter-jsdoc',
-  'https://github.com/tree-sitter/tree-sitter-json',
-  'https://github.com/tree-sitter/tree-sitter-julia',
-  'https://github.com/tree-sitter/tree-sitter-ocaml',
-  'https://github.com/tree-sitter/tree-sitter-php',
-  'https://github.com/tree-sitter/tree-sitter-python',
-  'https://github.com/tree-sitter/tree-sitter-ql',
-  'https://github.com/tree-sitter/tree-sitter-ql-dbscheme',
-  'https://github.com/tree-sitter/tree-sitter-regex',
-  'https://github.com/tree-sitter/tree-sitter-ruby',
-  'https://github.com/tree-sitter/tree-sitter-rust',
-  'https://github.com/tree-sitter/tree-sitter-scala',
-  'https://github.com/tree-sitter/tree-sitter-typescript',
-  'https://github.com/tree-sitter/tree-sitter-verilog',
-  'https://github.com/tree-sitter-grammars/tree-sitter-lua',
-  'https://github.com/tree-sitter-grammars/tree-sitter-markdown',
-  'https://github.com/tree-sitter-grammars/tree-sitter-zig',
+  'https://github.com/skakun-editor/tree-sitter-c',
+  'https://github.com/skakun-editor/tree-sitter-lua',
+  'https://github.com/skakun-editor/tree-sitter-python',
+  'https://github.com/skakun-editor/tree-sitter-zig',
 })
 
 local root = DocView.new(core.args[2] and Doc.open(core.args[2]) or Doc.new())
@@ -62,6 +42,7 @@ theme.apply()
 
 local should_redraw = true
 local old_width, old_height
+local mouse_x, mouse_y = 1, 1
 while true do
   local width, height = tty.get_size()
   if width ~= old_width or height ~= old_height then
@@ -91,6 +72,16 @@ while true do
     tty.move_to(width - #watermark + 1, height)
     tty.set_face({ foreground = 'bright_black' })
     tty.write(watermark)
+
+    local highlighter = SyntaxHighlighter.of(root.doc.buffer)
+    local idx = root:buffer_idx_drawn_at(mouse_x, mouse_y)
+    local highlight = '⬐' .. tostring(highlighter.highlight_at[idx])
+    if highlighter.debug_info_at[idx] then
+      highlight = highlight .. ' ' .. highlighter.debug_info_at[idx]
+    end
+    tty.move_to(mouse_x, mouse_y - 1)
+    tty.set_face({ background = 'bright_black' })
+    tty.write(highlight)
 
     tty.sync_end()
     tty.flush()
@@ -122,6 +113,9 @@ while true do
           theme.apply()
         end
       end
+    elseif event.type == 'move' then
+      mouse_x = event.x
+      mouse_y = event.y
     end
     should_redraw = true
     root:handle_event(event)

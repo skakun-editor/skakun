@@ -14,9 +14,10 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-local tty     = require('core.tty')
-local DocView = require('core.ui.doc_view')
-local utils   = require('core.utils')
+local SyntaxHighlighter = require('core.doc.syntax_highlighter')
+local tty               = require('core.tty')
+local DocView           = require('core.ui.doc_view')
+local utils             = require('core.utils')
 local rgb = tty.Rgb.from
 
 local dracula = {
@@ -174,79 +175,30 @@ function dracula.from(colors)
     destructuring_alias_lhs                   = { foreground = colors.orange,     background = colors.background, italic = true },
     destructuring_alias_rhs                   = { foreground = colors.foreground, background = colors.background },
   }
-  faces.syntax_highlights = {
-    ['attribute']                   = faces.decorators,
-    ['boolean']                     = faces.builtin_magic_methods_or_constants,
-    ['character']                   = faces.constant,
-    ['character.special']           = faces.keyword,
-    ['comment']                     = faces.comment,
-    ['comment.documentation']       = faces.comment,
-    ['conditional']                 = faces.keyword,
-    ['constant']                    = faces.constant,
-    ['constant.builtin']            = faces.builtin_magic_methods_or_constants,
-    ['constant.character']          = faces.constant,
-    ['constant.macro']              = faces.keyword,
-    ['constructor']                 = faces.class_name,
-    ['delimiter']                   = faces.normal,
-    ['escape']                      = faces.constant_escape_sequences,
-    ['exception']                   = faces.keyword,
-    ['float']                       = faces.constant,
-    ['function']                    = faces.function_names,
-    ['function.builtin']            = faces.builtin_functions,
-    ['function.call']               = faces.function_names,
-    ['function.macro']              = faces.function_names,
-    ['function.method']             = faces.function_names,
-    ['function.method.builtin']     = faces.builtin_magic_methods_or_constants,
-    ['function.special']            = faces.function_names,
-    ['include']                     = faces.keyword,
-    ['keyword']                     = faces.keyword,
-    ['keyword.conditional']         = faces.keyword,
-    ['keyword.conditional.ternary'] = faces.keyword,
-    ['keyword.debug']               = faces.keyword,
-    ['keyword.directive']           = faces.keyword,
-    ['keyword.exception']           = faces.keyword,
-    ['keyword.function']            = faces.keyword,
-    ['keyword.import']              = faces.keyword,
-    ['keyword.operator']            = faces.keyword,
-    ['keyword.repeat']              = faces.keyword,
-    ['keyword.return']              = faces.keyword,
-    ['keyword.type']                = faces.keyword,
-    ['label']                       = faces.yaml_aliases,
-    ['method']                      = faces.function_names,
-    ['method.call']                 = faces.function_names,
-    ['module']                      = faces.normal,
-    ['module.builtin']              = faces.normal,
-    ['namespace']                   = faces.normal,
-    ['number']                      = faces.constant,
-    ['number.float']                = faces.constant,
-    ['operator']                    = faces.keyword,
-    ['parameter']                   = faces.function_parameters,
-    ['property']                    = faces.object_keys,
-    ['property.definition']         = faces.object_keys,
-    ['punctuation']                 = faces.normal,
-    ['punctuation.bracket']         = faces.brackets_parens_braces,
-    ['punctuation.delimiter']       = faces.normal,
-    ['punctuation.special']         = faces.string_interpolation_operators,
-    ['repeat']                      = faces.keyword,
-    ['storageclass']                = faces.modifiers,
-    ['string']                      = faces.string,
-    ['string.documentation']        = faces.comment,
-    ['string.escape']               = faces.constant_escape_sequences,
-    ['string.special']              = faces.string_regexp,
-    ['string.special.key']          = faces.keys,
-    ['string.special.regex']        = faces.string_regexp,
-    ['string.special.symbol']       = faces.constant,
-    ['tag']                         = faces.html_tags,
-    ['tag.error']                   = faces.error,
-    ['type']                        = faces.class_name,
-    ['type.builtin']                = faces.types,
-    ['type.definition']             = faces.class_name,
-    ['type.qualifier']              = faces.modifiers,
-    ['variable']                    = faces.variable,
-    ['variable.builtin']            = faces.instance_reserved_words,
-    ['variable.member']             = faces.object_keys,
-    ['variable.parameter']          = faces.function_parameters,
-  }
+  faces.syntax_highlights = SyntaxHighlighter.apply_fallbacks({
+    comment                 = faces.comment,
+
+    punctuation             = faces.brackets_parens_braces,
+
+    escape_sequence         = faces.constant_escape_sequences,
+
+    literal                 = faces.constant,
+    string_literal          = faces.string,
+
+    keyword                 = faces.keyword,
+    member_access_operator  = faces.separators_references_or_accessors,
+
+    variable                = faces.variable,
+    constant                = faces.constant,
+    function_parameter      = faces.function_parameters,
+    ['function']            = faces.function_names,
+    type                    = faces.class_name,
+    special_member_function = faces.builtin_magic_methods_or_constants,
+    builtin_variable        = faces.instance_reserved_words,
+    builtin_constant        = faces.constant,
+    builtin_function        = faces.builtin_functions,
+    builtin_type            = faces.types,
+  }, SyntaxHighlighter.generate_fallbacks({ builtins = true, escape_sequences = true }))
   return {
     colors = colors,
     faces = faces,

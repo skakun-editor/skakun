@@ -27,6 +27,8 @@ local utils             = require('core.utils')
 -- BUG: syntax highlighter and spell checker co-op
 -- TODO: some nicer way of binding key shortcuts
 -- TODO: line numbers
+-- TODO: proper undo and redo
+-- TODO: set native cursor and window title when widget focused
 
 local DocView = setmetatable({
   should_soft_wrap = false,
@@ -166,12 +168,12 @@ function DocView:next_grapheme(iter, loc)
     is_invalid = true
   end
 
-  tty.set_face(is_invalid and self.faces.invalid or self:get_syntax_highlight_face(SyntaxHighlighter.of(self.doc.buffer).highlight_at[loc.byte]))
-  if SpellChecker.of(self.doc.buffer).is_correct[loc.byte] == false then
-    tty.set_underline(true)
-    tty.set_underline_color(self.colors.misspelling)
-    tty.set_underline_shape('curly')
-  end
+  tty.set_face(not is_invalid and (self.faces.syntax_highlights[SyntaxHighlighter.of(self.doc.buffer).highlight_at[loc.byte]] or self.faces.normal) or self.faces.invalid)
+  -- if SpellChecker.of(self.doc.buffer).is_correct[loc.byte] == false then
+  --   tty.set_underline(true)
+  --   tty.set_underline_color(self.colors.misspelling)
+  --   tty.set_underline_shape('curly')
+  -- end
 
   local node = loc.next_selection or self.selections:find_first(function(sel)
     return loc.byte <= sel.idx + math.max(sel.len, 0)
@@ -189,29 +191,6 @@ function DocView:next_grapheme(iter, loc)
     end
   end
 
-  return result
-end
-
-function DocView:get_syntax_highlight_face(name)
-  if not name then
-    return self.faces.normal
-  end
-  local result = self.faces.syntax_highlights[name]
-  if result then
-    return result
-  end
-
-  local group = name
-  while not result do
-    group = group:match('(.*)%.')
-    if not group then
-      result = self.faces.normal
-    else
-      result = self.faces.syntax_highlights[group]
-    end
-  end
-  self.faces.syntax_highlights[name] = result
-  stderr.warn(here, ('inheriting syntax highlight face for %q from %q'):format(name, group))
   return result
 end
 
@@ -280,12 +259,20 @@ function DocView:handle_event(event)
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'home' then
     self:sync_selections()
-    self:move_cursors_to_line_start(not event.shift)
+    if event.ctrl then
+      self:move_cursors_to_buffer_start(not event.shift)
+    else
+      self:move_cursors_to_line_start(not event.shift)
+    end
     self:adjust_view_to_contain_selection(self.selections:first().value)
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'end' then
     self:sync_selections()
-    self:move_cursors_to_line_end(not event.shift)
+    if event.ctrl then
+      self:move_cursors_to_buffer_end(not event.shift)
+    else
+      self:move_cursors_to_line_end(not event.shift)
+    end
     self:adjust_view_to_contain_selection(self.selections:last().value)
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'up' then
@@ -378,6 +365,7 @@ function DocView:handle_event(event)
     self:adjust_view_to_contain_selection(self.selections:first().value)
 
   elseif event.text then
+    event.text = event.text:gsub('\r\n', '\n'):gsub('\r', '\n')
     self:sync_selections()
     local buffer = self.doc.buffer:thaw()
     local shift = 0
@@ -517,6 +505,38 @@ function DocView:move_cursors_to_line_end(should_curtail_selections)
   local nav = Navigator.of(self.doc.buffer)
   for _, sel in self.selections:elems() do
     local cursor = nav:locate_line_col(nav:locate_byte(sel.idx + sel.len).line, math.huge).byte
+    if should_curtail_selections then
+      sel.idx = cursor
+      sel.len = 0
+    else
+      sel.len = cursor - sel.idx
+    end
+    sel.col_hint = nil
+  end
+  self:merge_overlapping_selections(1)
+end
+
+function DocView:move_cursors_to_buffer_start(should_curtail_selections)
+  assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
+  local nav = Navigator.of(self.doc.buffer)
+  local cursor = 1
+  for _, sel in self.selections:elems() do
+    if should_curtail_selections then
+      sel.idx = cursor
+      sel.len = 0
+    else
+      sel.len = cursor - sel.idx
+    end
+    sel.col_hint = nil
+  end
+  self:merge_overlapping_selections(-1)
+end
+
+function DocView:move_cursors_to_buffer_end(should_curtail_selections)
+  assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
+  local nav = Navigator.of(self.doc.buffer)
+  local cursor = #self.doc.buffer + 1
+  for _, sel in self.selections:elems() do
     if should_curtail_selections then
       sel.idx = cursor
       sel.len = 0

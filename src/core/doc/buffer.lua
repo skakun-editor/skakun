@@ -80,6 +80,8 @@ function DocBuffer:copy(idx, src, from, to)
   self:record_edit(idx, 0, to - from + 1)
 end
 
+-- TODO: move idxs inside edits to their one-past-the-end
+
 function DocBuffer:record_edit(idx, old_len, new_len)
   local diff = self.parent_diff
   if #diff == 0 then

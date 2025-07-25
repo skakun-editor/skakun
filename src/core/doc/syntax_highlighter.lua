@@ -35,7 +35,10 @@ local SyntaxHighlighter = {
       return self:read_node(capture:one_node()) == other
     end end,
     ['match?'] = function(self) return function(capture, regex)
-      return self:read_node(capture:one_node()):match(regex)
+      return self:read_node(capture:one_node()):find(regex)
+    end end,
+    ['not-match?'] = function(self) return function(capture, regex)
+      return not self:read_node(capture:one_node()):find(regex)
     end end,
     ['any-of?'] = function(self) return function(capture, ...)
       local str = self:read_node(capture:one_node())
@@ -50,10 +53,8 @@ local SyntaxHighlighter = {
     ['set!'] = function(self) return function(key, value)
       self.capture_properties[key] = value
     end end,
-    ['lua-match?'] = function(self) return function(capture, regex)
-      return self:read_node(capture:one_node()):match(regex)
-    end end,
   },
+  is_debug = false,
 }
 SyntaxHighlighter.__index = SyntaxHighlighter
 
@@ -71,6 +72,7 @@ function SyntaxHighlighter.new(buffer)
   local self = setmetatable({
     buffer = buffer,
     highlight_at = {},
+    debug_info_at = {},
     worker = nil,
     lock = thread.newlock(),
     grammars_version = nil,
@@ -87,7 +89,7 @@ function SyntaxHighlighter:refresh()
       self.worker:join()
     end
     self.worker = thread.new(xpcall, self.run, function(err)
-      stderr.error(here, debug.traceback(err))
+      stderr.error(here, debug.traceback(err, 2))
     end, self)
   end
   self.lock:release()
@@ -100,6 +102,7 @@ function SyntaxHighlighter:run()
   local grammar = treesitter.grammar_for_path(self.buffer.doc.path or '')
   if not grammar then
     self.highlight_at = {}
+    self.debug_info_at = {}
     return
   end
   local predicates = {}
@@ -122,8 +125,10 @@ function SyntaxHighlighter:run()
   local start = utils.timer()
   local cursor = treesitter.Query.Cursor.new(grammar.highlights(), tree:root_node())
   for capture in runner:iter_captures(cursor) do
-    for i = capture:node():start_byte() + 1, capture:node():end_byte() do
-      self.highlight_at[i] = capture:name()
+    if capture:name():sub(1, 1) ~= '_' then
+      for i = capture:node():start_byte() + 1, capture:node():end_byte() do
+        self.highlight_at[i] = capture:name()
+      end
     end
     if self.is_stopping then return end
   end
@@ -153,11 +158,21 @@ function SyntaxHighlighter:run()
       })
     elseif capture:name() == 'local.definition' then
       scopes[#scopes].highlight_for[self:read_node(capture:node())] = self.highlight_at[from]
+      if self.is_debug then
+        for i = from, to do
+          self.debug_info_at[i] = self.debug_info_at[i] or capture:name()
+        end
+      end
     elseif capture:name() == 'local.reference' then
       local name = scopes[#scopes].highlight_for[self:read_node(capture:node())]
       if name then
         for i = from, to do
           self.highlight_at[i] = name
+        end
+        if self.is_debug then
+          for i = from, to do
+            self.debug_info_at[i] = self.debug_info_at[i] or capture:name()
+          end
         end
       end
     end
@@ -169,6 +184,136 @@ end
 
 function SyntaxHighlighter:read_node(node)
   return self.buffer:read(node:start_byte() + 1, node:end_byte())
+end
+
+-- IDEA: type parameters
+-- BUG: figure out what to do with:
+--      from timeit import default_timer
+--      #       defined as ^^^^^^^^^^^^^ "variable"
+--      print(default_timer())
+--      #     ^^^^^^^^^^^^^ referenced
+
+SyntaxHighlighter.base_fallbacks = {
+  comment                = false,
+
+  punctuation            = false,
+
+  escape_sequence        = false,
+
+  literal                = false,
+  boolean_literal        = 'literal',
+  character_literal      = 'literal',
+  null_literal           = 'literal',
+  number_literal         = 'literal',
+  string_literal         = 'literal',
+  symbol_literal         = 'literal',
+
+  keyword                = false,
+  operator               = 'keyword',
+  matchfix_operator      = 'operator',
+  member_access_operator = 'operator',
+  type_keyword           = 'keyword',
+  evaluation_branch      = 'keyword',
+  evaluation_loop        = 'keyword',
+  evaluation_end         = 'keyword',
+  declaration            = 'keyword',
+  declaration_modifier   = 'declaration',
+  pragma                 = 'keyword',
+
+  identifier             = false,
+  variable               = 'identifier',
+  constant               = 'variable',
+  function_parameter     = 'variable',
+  ['function']           = 'identifier',
+  type                   = 'identifier',
+  goto_label             = 'identifier',
+}
+
+function SyntaxHighlighter.generate_fallbacks(opts)
+  local result = utils.copy(SyntaxHighlighter.base_fallbacks)
+
+  local mem = { identifier = true }
+  local function is_identifier(name)
+    if mem[name] == nil and name then
+      mem[name] = is_identifier(result[name])
+    end
+    return mem[name] or false
+  end
+
+  for name, _ in pairs(SyntaxHighlighter.base_fallbacks) do
+    if is_identifier(name) then
+      if opts.members and result[name] then
+        result['member_' .. name] = 'member_' .. result[name]
+      else
+        result['member_' .. name] = name
+      end
+    end
+  end
+
+  local names = {}
+  for name, _ in pairs(result) do
+    table.insert(names, name)
+  end
+
+  for _, name in ipairs(names) do
+    if is_identifier(name) then
+      if opts.specials and result[name] then
+        result['special_' .. name] = 'special_' .. result[name]
+      else
+        result['special_' .. name] = name
+      end
+    end
+  end
+
+  for _, name in ipairs(names) do
+    if is_identifier(name) then
+      if opts.builtins and result[name] then
+        result['builtin_' .. name] = 'builtin_' .. result[name]
+      else
+        result['builtin_' .. name] = name
+      end
+    end
+  end
+
+  local names = {}
+  for name, _ in pairs(result) do
+    table.insert(names, name)
+  end
+
+  for _, name in ipairs(names) do
+    if name ~= 'comment' and name ~= 'punctuation' then
+      if opts.delimiters then
+        result[name .. '_delimiter'] = result[name] and result[name] .. '_delimiter' or 'punctuation'
+      else
+        result[name .. '_delimiter'] = name
+      end
+    end
+  end
+
+  for _, name in ipairs(names) do
+    if name ~= 'escape_sequence' then
+      if opts.escape_sequences then
+        result[name .. '_escape_sequence'] = result[name] and result[name] .. '_escape_sequence' or 'escape_sequence'
+      else
+        result[name .. '_escape_sequence'] = name
+      end
+    end
+  end
+
+  return result
+end
+
+function SyntaxHighlighter.apply_fallbacks(syntax_highlights, fallbacks)
+  local function apply(name)
+    if not syntax_highlights[name] and fallbacks[name] then
+      apply(fallbacks[name])
+      syntax_highlights[name] = syntax_highlights[fallbacks[name]]
+    end
+  end
+  for name, _ in pairs(fallbacks) do
+    apply(name)
+  end
+  return syntax_highlights
 end
 
 return SyntaxHighlighter

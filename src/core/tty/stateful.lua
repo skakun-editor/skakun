@@ -294,13 +294,13 @@ function tty.detect_caps()
   local mouse_shape = tty.query('\27]22;?__current__\27\\', '\27]22:.*\27\\')
   -- Reference: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h3-Operating-System-Commands
   -- Konsole and st send BEL instead of ST at the end for some reason.
-  local window_background = tty.query('\27]11;?\27\\', '\27]11;.*\27?\\?\a?')
+  local window_background = tty.query('\27]11;?\27\\', '\27]11;.*[\27\a]\\?')
   tty.flush()
 
   -- VTE 0.35.1 (c5a32b49), Konsole 3.5.4 (f34d8203)
   -- It would probably be better to follow: https://github.com/termstandard/colors#querying-the-terminal
   -- We could also assume that 256-color terminals are always true-color:
-  -- tty.getflag('initc') or os.getenv('TERM'):find('256color')
+  -- tty.getflag('initc') or os.getenv('TERM'):find('256color', 1, true)
   if vte >= 3501 or konsole >= 030504 or xterm >= 331 or Tc() or os.getenv('COLORTERM') == 'truecolor' or os.getenv('COLORTERM') == '24bit' then
     tty.cap.foreground = 'true_color'
     tty.cap.background = 'true_color'
@@ -432,7 +432,7 @@ function tty.load_ansi_color_palette()
       -- our colors and it turns out that the former format (or in the words
       -- of X11 itself: "RGB Device") is actually deprecated by XParseColor!
       -- Source: man 3 XParseColor
-      '\27]4;' .. i - 1 .. ';rgb:(%x%x)%x*/(%x%x)%x*/(%x%x)%x*\27?\\?\a?'
+      '\27]4;' .. i - 1 .. ';rgb:(%x%x)%x*/(%x%x)%x*/(%x%x)%x*[\27\a]\\?'
     )
   end
   tty.flush()
@@ -484,7 +484,11 @@ function tty.query(question, answer_regex)
         break
       end
     end
-    return table.unpack(answer, 3, answer.n)
+    if answer.n == 2 then
+      return true
+    else
+      return table.unpack(answer, 3, answer.n)
+    end
   end
 end
 
@@ -551,7 +555,7 @@ function tty.load_functions()
 
   local ansi_color_fg_codes = {}
   for i, name in ipairs(tty.ansi_colors) do
-    ansi_color_fg_codes[name] = (name:match('^bright_') and 90 or 30) + (i - 1 & 7)
+    ansi_color_fg_codes[name] = (name:find('^bright_') and 90 or 30) + (i - 1 & 7)
   end
   if tty.cap.foreground == 'true_color' then
     function tty.set_foreground(color)

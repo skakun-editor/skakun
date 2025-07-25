@@ -14,9 +14,10 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-local tty     = require('core.tty')
-local DocView = require('core.ui.doc_view')
-local utils   = require('core.utils')
+local SyntaxHighlighter = require('core.doc.syntax_highlighter')
+local tty               = require('core.tty')
+local DocView           = require('core.ui.doc_view')
+local utils             = require('core.utils')
 local rgb = tty.Rgb.from
 
 local gruvbox_dark = {
@@ -30,8 +31,8 @@ function gruvbox_dark.apply()
     DocView.faces, 'invalid', theme.faces.invalid,
     DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
     DocView.colors, 'cursor', theme.colors.fg1,
-    DocView.colors, 'cursor_foreground', theme.colors.bg3,
-    DocView.colors, 'selection', theme.colors.bg2,
+    DocView.colors, 'cursor_foreground', theme.colors.bg2,
+    DocView.colors, 'selection', theme.colors.bg1,
     DocView.colors, 'misspelling', theme.colors.red
   )
 end
@@ -128,106 +129,69 @@ function gruvbox_dark.from(colors)
   -- I had to infer the syntax groups on my own because the declared groups
   -- in the Neovim colorscheme file match the displayed ones only partially.
   local faces = {
-    normal     = { foreground = colors.fg1,    background = colors.bg0 },
-    invalid    = { foreground = colors.bg0,    background = colors.red },
+    normal             = { foreground = colors.fg1,    background = colors.bg0 },
+    invalid            = { foreground = colors.bg0,    background = colors.red },
 
-    comment    = { foreground = colors.gray,   background = colors.bg0, italic = true },
-    todo       = { foreground = colors.fg1,    background = colors.bg0, bold = true, italic = true },
-    error      = { foreground = colors.red,    background = colors.bg0, bold = true },
+    comment            = { foreground = colors.gray,   background = colors.bg0, italic = true },
+    todo               = { foreground = colors.fg1,    background = colors.bg0, bold = true, italic = true },
+    error              = { foreground = colors.red,    background = colors.bg0, bold = true },
 
-    operator   = { foreground = colors.fg1,    background = colors.bg0 },
-    keyword    = { foreground = colors.red,    background = colors.bg0 },
-    import     = { foreground = colors.aqua,   background = colors.bg0 },
-    preproc    = { foreground = colors.aqua,   background = colors.bg0 },
+    operator           = { foreground = colors.fg1,    background = colors.bg0 },
+    keyword            = { foreground = colors.red,    background = colors.bg0 },
+    preproc            = { foreground = colors.aqua,   background = colors.bg0 },
 
-    identifier = { foreground = colors.fg1,    background = colors.bg0 },
-    function_  = { foreground = colors.blue,   background = colors.bg0 },
+    identifier         = { foreground = colors.fg1,    background = colors.bg0 },
+    function_          = { foreground = colors.blue,   background = colors.bg0 },
 
-    constant   = { foreground = colors.purple, background = colors.bg0 },
-    escape     = { foreground = colors.orange, background = colors.bg0 },
-    string     = { foreground = colors.green,  background = colors.bg0 },
-    regex      = { foreground = colors.aqua,   background = colors.bg0 },
+    constant           = { foreground = colors.purple, background = colors.bg0 },
+    escape             = { foreground = colors.orange, background = colors.bg0 },
+    string             = { foreground = colors.green,  background = colors.bg0 },
 
-    type       = { foreground = colors.yellow, background = colors.bg0 },
-    modifier   = { foreground = colors.orange, background = colors.bg0 },
-    storage    = { foreground = colors.aqua,   background = colors.bg0 },
+    type               = { foreground = colors.yellow, background = colors.bg0 },
+    modifier           = { foreground = colors.orange, background = colors.bg0 },
+    storage            = { foreground = colors.aqua,   background = colors.bg0 },
 
-    html_tag   = { foreground = colors.aqua,   background = colors.bg0, bold = true },
-    html_attr  = { foreground = colors.aqua,   background = colors.bg0 },
+    html_tag           = { foreground = colors.aqua,   background = colors.bg0, bold = true },
+    html_attr          = { foreground = colors.aqua,   background = colors.bg0 },
+
+    punctuation        = { foreground = colors.fg3,    background = colors.bg0 },
+    special_identifier = { foreground = colors.fg1,    background = colors.bg0, bold = true },
+    special_constant   = { foreground = colors.purple, background = colors.bg0, bold = true },
+    special_function   = { foreground = colors.blue,   background = colors.bg0, bold = true },
+    special_type       = { foreground = colors.yellow, background = colors.bg0, bold = true },
+    builtin_identifier = { foreground = colors.fg1,    background = colors.bg0, italic = true },
+    builtin_constant   = { foreground = colors.purple, background = colors.bg0, italic = true },
+    builtin_function   = { foreground = colors.blue,   background = colors.bg0, italic = true },
+    builtin_type       = { foreground = colors.yellow, background = colors.bg0, italic = true },
   }
-  faces.syntax_highlights = {
-    ['attribute']                   = faces.html_attr,
-    ['boolean']                     = faces.constant,
-    ['character']                   = faces.constant,
-    ['character.special']           = faces.keyword,
-    ['comment']                     = faces.comment,
-    ['comment.documentation']       = faces.comment,
-    ['conditional']                 = faces.keyword,
-    ['constant']                    = faces.constant,
-    ['constant.builtin']            = faces.constant,
-    ['constant.character']          = faces.constant,
-    ['constant.macro']              = faces.preproc,
-    ['constructor']                 = faces.type,
-    ['delimiter']                   = faces.normal,
-    ['escape']                      = faces.escape,
-    ['exception']                   = faces.keyword,
-    ['float']                       = faces.constant,
-    ['function']                    = faces.function_,
-    ['function.builtin']            = faces.function_,
-    ['function.call']               = faces.function_,
-    ['function.macro']              = faces.function_,
-    ['function.method']             = faces.function_,
-    ['function.method.builtin']     = faces.function_,
-    ['function.special']            = faces.function_,
-    ['include']                     = faces.import,
-    ['keyword']                     = faces.keyword,
-    ['keyword.conditional']         = faces.keyword,
-    ['keyword.conditional.ternary'] = faces.operator,
-    ['keyword.debug']               = faces.keyword,
-    ['keyword.directive']           = faces.preproc,
-    ['keyword.exception']           = faces.keyword,
-    ['keyword.function']            = faces.keyword,
-    ['keyword.import']              = faces.import,
-    ['keyword.operator']            = faces.operator,
-    ['keyword.repeat']              = faces.keyword,
-    ['keyword.return']              = faces.keyword,
-    ['keyword.type']                = faces.storage,
-    ['label']                       = faces.identifier,
-    ['method']                      = faces.function_,
-    ['method.call']                 = faces.function_,
-    ['module']                      = faces.identifier,
-    ['module.builtin']              = faces.identifier,
-    ['namespace']                   = faces.identifier,
-    ['number']                      = faces.constant,
-    ['number.float']                = faces.constant,
-    ['operator']                    = faces.operator,
-    ['parameter']                   = faces.identifier,
-    ['property']                    = faces.identifier,
-    ['property.definition']         = faces.identifier,
-    ['punctuation']                 = faces.normal,
-    ['punctuation.bracket']         = faces.normal,
-    ['punctuation.delimiter']       = faces.normal,
-    ['punctuation.special']         = faces.escape,
-    ['repeat']                      = faces.keyword,
-    ['storageclass']                = faces.modifier,
-    ['string']                      = faces.string,
-    ['string.documentation']        = faces.comment,
-    ['string.escape']               = faces.escape,
-    ['string.special']              = faces.regex,
-    ['string.special.key']          = faces.identifier,
-    ['string.special.regex']        = faces.regex,
-    ['string.special.symbol']       = faces.constant,
-    ['tag']                         = faces.html_tag,
-    ['tag.error']                   = faces.error,
-    ['type']                        = faces.type,
-    ['type.builtin']                = faces.type,
-    ['type.definition']             = faces.type,
-    ['type.qualifier']              = faces.modifier,
-    ['variable']                    = faces.identifier,
-    ['variable.builtin']            = faces.identifier,
-    ['variable.member']             = faces.identifier,
-    ['variable.parameter']          = faces.identifier,
-  }
+  faces.syntax_highlights = SyntaxHighlighter.apply_fallbacks({
+    comment              = faces.comment,
+
+    punctuation          = faces.punctuation,
+
+    escape_sequence      = faces.escape,
+
+    literal              = faces.constant,
+    string_literal       = faces.string,
+
+    keyword              = faces.keyword,
+    operator             = faces.operator,
+    type_keyword         = faces.modifier,
+    declaration          = faces.storage,
+    pragma               = faces.preproc,
+
+    constant             = faces.constant,
+    ['function']         = faces.function_,
+    type                 = faces.type,
+    special_identifier   = faces.special_identifier,
+    special_constant     = faces.special_constant,
+    special_function     = faces.special_function,
+    special_type         = faces.special_type,
+    builtin_identifier   = faces.builtin_identifier,
+    builtin_constant     = faces.builtin_constant,
+    builtin_function     = faces.builtin_function,
+    builtin_type         = faces.builtin_type,
+  }, SyntaxHighlighter.generate_fallbacks({ builtins = true, escape_sequences = true, specials = true }))
   return {
     colors = colors,
     faces = faces,

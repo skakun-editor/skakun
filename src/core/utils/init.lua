@@ -122,7 +122,7 @@ function utils.tostring(value, visited)
     local result = '{\n'
     for _, k in ipairs(keys) do
       local v = utils.tostring(value[k], visited)
-      if type(k) ~= 'string' or not k:match('^[%a_][%w_]*$') then
+      if type(k) ~= 'string' or not k:find('^[%a_][%w_]*$') then
         k = '[' .. utils.tostring(k, visited) .. ']'
       end
       result = result .. '  ' .. k:gsub('\n', '\n  ') .. ' = ' .. v:gsub('\n', '\n  ') .. ',\n'
@@ -144,11 +144,11 @@ function utils.copy(table)
   return result
 end
 
-function utils.split(string, sep)
+function utils.split(string, sep, plain)
   local i = 1
   return function()
     if i > #string then return end
-    local j = string:find(sep, i) or #string + 1
+    local j = string:find(sep, i, plain) or #string + 1
     local result = string:sub(i, j - 1)
     i = j + 1
     return result

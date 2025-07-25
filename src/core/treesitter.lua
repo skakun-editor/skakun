@@ -30,24 +30,27 @@ function treesitter.on_grammars_change() end
 function treesitter.load_pkgs(pkgs)
   local start = utils.timer()
   local leftovers = {}
-  for _, url in ipairs(pkgs) do
+  for _, url_or_path in ipairs(pkgs) do
     xpcall(
       treesitter.load_pkg,
       function(err)
-        table.insert(leftovers, url)
+        table.insert(leftovers, url_or_path)
         stderr.warn(here, err)
       end,
-      core.cache_dir .. '/' .. here .. '/' .. utils.slugify(url)
+      url_or_path:find('^https?://') and core.cache_dir .. '/' .. here .. '/' .. utils.slugify(url_or_path) or url_or_path
     )
   end
   stderr.info(here, ('pkg preload done in %.2fs'):format(utils.timer() - start))
   treesitter.on_grammars_change()
 
   local success = false
-  for _, url in ipairs(leftovers) do
+  for _, url_or_path in ipairs(leftovers) do
     xpcall(
       function()
-        local dir = treesitter.download_pkg(url)
+        local dir = url_or_path
+        if url_or_path:find('^https?://') then
+          dir = treesitter.download_pkg(url_or_path)
+        end
         treesitter.build_pkg(dir)
         treesitter.load_pkg(dir)
         success = true
@@ -93,7 +96,7 @@ function treesitter.download_pkg(url)
     local log = pipe:read('a')
     if not pipe:close() then
       error(log, 0)
-    elseif not log:match('^Already up to date.\n') then
+    elseif not log:find('^Already up to date.\n') then
       stderr.info(here, log)
       assert(os.execute(('git -C %q clean -dfX'):format(dest)))
     end
