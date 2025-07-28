@@ -16,7 +16,8 @@
 
 local tty   = require('core.tty')
 local utils = require('core.utils')
-local rgb = tty.Rgb.from
+local rgb = tty.Rgb.from_hex
+local hsv = tty.Rgb.from_hsv
 
 tty.clear()
 
@@ -36,18 +37,11 @@ tty.reset()
 tty.move_to(1, 1)
 
 -- True colors
-local function hue_color(hue)
-  return {
-    red   = math.floor(255 * math.min(math.max(2 - 4 * hue, 0), 1)),
-    green = math.floor(255 * math.min(2 - math.abs(4 * hue - 2), 1)),
-    blue  = math.floor(255 * math.min(math.max(4 * hue - 2, 0), 1)),
-  }
-end
 local width = tty.getnum('cols')()
 for i = 1, width do
   local progress = (i - 1) / (width - 1)
-  tty.set_foreground(hue_color(progress))
-  tty.set_background(hue_color(1 - progress))
+  tty.set_foreground(hsv(360 * progress, 1, 1))
+  tty.set_background(hsv(360 * (1 - progress), 1, 1))
   tty.write('▄')
 end
 tty.set_foreground()
@@ -136,7 +130,7 @@ if tty.cap.window_background == 'true_color' then
   while true do
     local progress = (utils.timer() - start) / 3
     if progress > 1 then break end
-    tty.set_window_background(hue_color(progress))
+    tty.set_window_background(hsv(360 * progress, 1, 1))
     tty.flush()
   end
   tty.set_window_background()

@@ -9,6 +9,8 @@ local tty               = require('core.tty')
 local DocView           = require('core.ui.doc_view')
 local utils             = require('core.utils')
 local dracula           = require('theme.dracula')
+local fruitmash_dark    = require('theme.fruitmash_dark')
+local fruitmash_light   = require('theme.fruitmash_light')
 local github_dark       = require('theme.github_dark')
 local github_light      = require('theme.github_light')
 local gruvbox_dark      = require('theme.gruvbox_dark')
@@ -30,14 +32,14 @@ SyntaxHighlighter.is_debug = true
 thread.new(xpcall, treesitter.load_pkgs, function(err)
   stderr.error(here, debug.traceback(err))
 end, {
-  'https://github.com/skakun-editor/tree-sitter-c',
-  'https://github.com/skakun-editor/tree-sitter-lua',
-  'https://github.com/skakun-editor/tree-sitter-python',
-  'https://github.com/skakun-editor/tree-sitter-zig',
+  core.exe_dir .. '/../../../tree-sitter-c',
+  core.exe_dir .. '/../../../tree-sitter-lua',
+  core.exe_dir .. '/../../../tree-sitter-python',
+  core.exe_dir .. '/../../../tree-sitter-zig',
 })
 
 local root = DocView.new(core.args[2] and Doc.open(core.args[2]) or Doc.new())
-local theme = dracula
+local theme = fruitmash_dark
 theme.apply()
 
 local should_redraw = true
@@ -68,20 +70,56 @@ while true do
     tty.set_cursor(false)
     tty.set_window_background(root.faces.normal.background)
 
+    local set = {}
+    for _, face in pairs(DocView.faces.syntax_highlights) do
+      if face.foreground then
+        set[face.foreground] = true
+      end
+    end
+    set[DocView.faces.normal.foreground or 'white'] = true
+    local colors = {}
+    for i in pairs(set) do
+      table.insert(colors, i)
+    end
+    table.sort(colors, function(a, b)
+      if type(a) == 'string' and type(b) == 'string' then
+        return a < b
+      elseif type(a) == 'string' then
+        return true
+      elseif type(b) == 'string' then
+        return false
+      else
+        local ah, as, av = a:hsv()
+        local bh, bs, bv = b:hsv()
+        if ah ~= bh then return ah < bh end
+        if as ~= bs then return as < bs end
+        return av < bv
+      end
+    end)
+    local y = 2
+    for _, color in ipairs(colors) do
+      tty.move_to(width - 4, y)
+      tty.set_background(color)
+      tty.write('    ')
+      tty.move_to(width - 4, y + 1)
+      tty.write('    ')
+      y = y + 3
+    end
+
     local watermark = 'Skakun ' .. core.version
     tty.move_to(width - #watermark + 1, height)
     tty.set_face({ foreground = 'bright_black' })
     tty.write(watermark)
 
-    local highlighter = SyntaxHighlighter.of(root.doc.buffer)
-    local idx = root:buffer_idx_drawn_at(mouse_x, mouse_y)
-    local highlight = '⬐' .. tostring(highlighter.highlight_at[idx])
-    if highlighter.debug_info_at[idx] then
-      highlight = highlight .. ' ' .. highlighter.debug_info_at[idx]
-    end
-    tty.move_to(mouse_x, mouse_y - 1)
-    tty.set_face({ background = 'bright_black' })
-    tty.write(highlight)
+    -- local highlighter = SyntaxHighlighter.of(root.doc.buffer)
+    -- local idx = root:buffer_idx_drawn_at(mouse_x, mouse_y)
+    -- local highlight = '⬐' .. tostring(highlighter.highlight_at[idx])
+    -- if highlighter.debug_info_at[idx] then
+    --   highlight = highlight .. ' ' .. highlighter.debug_info_at[idx]
+    -- end
+    -- tty.move_to(mouse_x, mouse_y - 1)
+    -- tty.set_face({ background = 'bright_black' })
+    -- tty.write(highlight)
 
     tty.sync_end()
     tty.flush()
@@ -107,7 +145,7 @@ while true do
           theme.unapply()
           theme = nil
         end
-        theme = ({dracula, github_dark, github_light, gruvbox_dark, gruvbox_light})[tonumber(event.button:match('f(%d+)'))]
+        theme = ({dracula, fruitmash_dark, fruitmash_light, github_dark, github_light, gruvbox_dark, gruvbox_light})[tonumber(event.button:match('f(%d+)'))]
         if theme then
           tty.cap.foreground = event.shift and 'ansi' or 'true_color'
           theme.apply()

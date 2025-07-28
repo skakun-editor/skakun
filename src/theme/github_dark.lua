@@ -18,7 +18,7 @@ local SyntaxHighlighter = require('core.doc.syntax_highlighter')
 local tty               = require('core.tty')
 local DocView           = require('core.ui.doc_view')
 local utils             = require('core.utils')
-local rgb = tty.Rgb.from
+local rgb = tty.Rgb.from_hex
 
 local github_dark = {
   themer = utils.Themer.new(),

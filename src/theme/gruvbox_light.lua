@@ -18,7 +18,7 @@ local tty          = require('core.tty')
 local DocView      = require('core.ui.doc_view')
 local utils        = require('core.utils')
 local gruvbox_dark = require('theme.gruvbox_dark')
-local rgb = tty.Rgb.from
+local rgb = tty.Rgb.from_hex
 
 local gruvbox_light = {
   themer = utils.Themer.new(),
