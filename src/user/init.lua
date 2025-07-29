@@ -16,7 +16,6 @@ local github_light      = require('theme.github_light')
 local gruvbox_dark      = require('theme.gruvbox_dark')
 local gruvbox_light     = require('theme.gruvbox_light')
 
--- TODO: display syntax group under cursor
 -- TODO: commands under F1
 -- TODO: logo
 -- HACK: update docs when you're finished lol
@@ -70,6 +69,7 @@ while true do
     tty.set_cursor(false)
     tty.set_window_background(root.faces.normal.background)
 
+    --[[
     local set = {}
     for _, face in pairs(DocView.faces.syntax_highlights) do
       if face.foreground then
@@ -105,6 +105,7 @@ while true do
       tty.write('    ')
       y = y + 3
     end
+    ]]
 
     local watermark = 'Skakun ' .. core.version
     tty.move_to(width - #watermark + 1, height)
