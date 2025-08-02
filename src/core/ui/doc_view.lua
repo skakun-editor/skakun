@@ -87,6 +87,7 @@ function DocView:draw()
   Widget.draw(self)
   self.drawn.buffer = self.doc.buffer
   SyntaxHighlighter.of(self.doc.buffer):refresh()
+  SpellChecker.of(self.doc.buffer):refresh()
   self:sync_selections()
   self:layout_lines()
   self:draw_lines()
@@ -168,12 +169,12 @@ function DocView:next_grapheme(iter, loc)
     is_invalid = true
   end
 
-  tty.set_face(not is_invalid and (self.faces.syntax_highlights[SyntaxHighlighter.of(self.doc.buffer).highlight_at[loc.byte]] or self.faces.normal) or self.faces.invalid)
-  -- if SpellChecker.of(self.doc.buffer).is_correct[loc.byte] == false then
-  --   tty.set_underline(true)
-  --   tty.set_underline_color(self.colors.misspelling)
-  --   tty.set_underline_shape('curly')
-  -- end
+  local face = utils.copy(not is_invalid and (self.faces.syntax_highlights[SyntaxHighlighter.of(self.doc.buffer).highlight_at[loc.byte]] or self.faces.normal) or self.faces.invalid)
+  if SpellChecker.of(self.doc.buffer).is_correct[loc.byte] == false then
+    face.underline = true
+    face.underline_color = self.colors.misspelling
+    face.underline_shape = 'curly'
+  end
 
   local node = loc.next_selection or self.selections:find_first(function(sel)
     return loc.byte <= sel.idx + math.max(sel.len, 0)
@@ -184,13 +185,14 @@ function DocView:next_grapheme(iter, loc)
   loc.next_selection = node
   if node then
     if loc.byte == node.value.idx + node.value.len then
-      tty.set_background(self.colors.cursor)
-      tty.set_foreground(self.colors.cursor_foreground)
+      face.background = self.colors.cursor
+      face.foreground = self.colors.cursor_foreground
     elseif node.value.idx + math.min(node.value.len, 0) <= loc.byte then
-      tty.set_background(self.colors.selection)
+      face.background = self.colors.selection
     end
   end
 
+  tty.set_face(face)
   return result
 end
 

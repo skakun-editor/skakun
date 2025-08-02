@@ -19,8 +19,8 @@
       .hash = "tree_sitter-0.25.1-Tw2sRxO5CwBou3LAQAS0rtq7ovdnXcwy9gXTCIDKAfJG",
     },
     .zlua = .{
-      .url = "https://github.com/skakun-editor/multithreaded-ziglua/archive/61b50c4.tar.gz",
-      .hash = "zlua-0.1.0-hGRpCzkaBQAEkwkpxJxgv5-SZvBqgt48lX7ZtxlirhJ1",
+      .url = "https://github.com/skakun-editor/multithreaded-ziglua/archive/5f4d914.tar.gz",
+      .hash = "zlua-0.1.0-hGRpC24tBQBhLXKL0Om43m8OKtYqabb5z2MLDtkqLGCs",
     },
   },
   .paths = .{

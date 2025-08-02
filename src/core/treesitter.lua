@@ -187,6 +187,7 @@ function treesitter.load_pkg(dir)
         highlights = utils.once(load_queries, json.highlights or 'queries/highlights.scm'),
         locals = utils.once(load_queries, json.locals or 'queries/locals.scm'),
         injections = utils.once(load_queries, json.injections or 'queries/injections.scm'),
+        spelling = utils.once(load_queries, json.spelling or 'queries/spelling.scm'),
       })
     end
   end

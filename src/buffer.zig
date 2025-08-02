@@ -25,7 +25,7 @@ const assert = std.debug.assert;
 const posix = std.posix;
 
 // Some methods have an optional "err_msg" parameter, which on failure, may be
-// set to an error message from GIO. The caller is reponsible for freeing
+// set to an error message from GIO. The caller is responsible for freeing
 // err_msg with the Editor's allocator afterwards.
 
 pub const Error = Allocator.Error || error {MultipleHardLinks, NegativeRange, OutOfBounds} || GioError || posix.OpenError || posix.ReadError || posix.MMapError || posix.RealPathError || posix.RenameError;
@@ -700,6 +700,21 @@ pub const Buffer = struct {
       self.offset_in_node -= 1;
       defer self.node().value.release();
       return self.node().value.acquire()[self.offset_in_node];
+    }
+
+    pub fn skip(self: *Iterator, count_: usize) error {OutOfBounds}!void {
+      var count = count_;
+      if(self.path.len <= 0) {
+        try self.next_node();
+      }
+      while(count > 0) {
+        if(self.offset_in_node >= self.node().value.len) {
+          try self.next_node();
+        }
+        const addend = @min(count, self.node().value.len - self.offset_in_node);
+        count -= addend;
+        self.offset_in_node += addend;
+      }
     }
 
     pub fn rewind(self: *Iterator, count_: usize) error {OutOfBounds}!void {

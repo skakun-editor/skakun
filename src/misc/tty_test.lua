@@ -119,7 +119,7 @@ if tty.cap.window_background == 'true_color' or tty.cap.window_background == 'an
   for _, name in pairs(tty.ansi_colors) do
     tty.set_window_background(name)
     tty.flush()
-    os.execute('sleep 0.4')
+    thread.sleep(0.4)
   end
   tty.set_window_background()
 end

@@ -15,6 +15,7 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local here = ...
+local Parser     = require('core.doc.parser')
 local stderr     = require('core.stderr')
 local treesitter = require('core.treesitter')
 local utils      = require('core.utils')
@@ -27,33 +28,6 @@ function treesitter.on_grammars_change()
 end
 
 local SyntaxHighlighter = {
-  predicates = {
-    ['eq?'] = function(self) return function(capture, other)
-      if type(other) ~= 'string' then
-        other = self:read_node(other:one_node())
-      end
-      return self:read_node(capture:one_node()) == other
-    end end,
-    ['match?'] = function(self) return function(capture, regex)
-      return self:read_node(capture:one_node()):find(regex)
-    end end,
-    ['not-match?'] = function(self) return function(capture, regex)
-      return not self:read_node(capture:one_node()):find(regex)
-    end end,
-    ['any-of?'] = function(self) return function(capture, ...)
-      local str = self:read_node(capture:one_node())
-      for i = 1, select('#', ...) do
-        if str == select(i, ...) then
-          return true
-        end
-      end
-      return false
-    end end,
-    ['is-not?'] = function(self) return function() end end,
-    ['set!'] = function(self) return function(key, value)
-      self.capture_properties[key] = value
-    end end,
-  },
   is_debug = false,
 }
 SyntaxHighlighter.__index = SyntaxHighlighter
@@ -73,17 +47,21 @@ function SyntaxHighlighter.new(buffer)
     buffer = buffer,
     highlight_at = {},
     debug_info_at = {},
+
     worker = nil,
     lock = thread.newlock(),
-    grammars_version = nil,
     is_stopping = false,
+    parser = Parser.of(buffer),
+    grammar = nil,
+    tree = nil,
   }, SyntaxHighlighter)
   return self
 end
 
 function SyntaxHighlighter:refresh()
+  self.parser:refresh()
   self.lock:acquire()
-  if self.grammars_version ~= grammars_version and not self.is_stopping then
+  if self.tree ~= self.parser.tree and not self.is_stopping then
     self.is_stopping = true
     if self.worker then
       self.worker:join()
@@ -96,34 +74,20 @@ function SyntaxHighlighter:refresh()
 end
 
 function SyntaxHighlighter:run()
-  self.grammars_version = grammars_version
+  self.grammar = self.parser.grammar
+  self.tree = self.parser.tree
   self.is_stopping = false
 
-  local grammar = treesitter.grammar_for_path(self.buffer.doc.path or '')
-  if not grammar then
+  if not self.tree then
     self.highlight_at = {}
     self.debug_info_at = {}
     return
   end
-  local predicates = {}
-  for name, func in pairs(self.predicates) do
-    predicates[name] = func(self)
-  end
-  local runner = treesitter.Query.Runner.new(predicates, function()
-    self.capture_properties = {}
-  end)
+
+  local runner = treesitter.Query.Runner.new(self.parser:get_predicates())
 
   local start = utils.timer()
-  local parser = treesitter.Parser:new()
-  parser:set_language(grammar.lang)
-  local tree = parser:parse(nil, function(idx)
-    return self.buffer:read(idx + 1, math.min(idx + 1000000, #self.buffer))
-  end)
-  if self.is_stopping then return end
-  stderr.info(here, 'parse done in ', math.floor(1e3 * (utils.timer() - start)), 'ms')
-
-  local start = utils.timer()
-  local cursor = treesitter.Query.Cursor.new(grammar.highlights(), tree:root_node())
+  local cursor = treesitter.Query.Cursor.new(self.grammar.highlights(), self.tree:root_node())
   for capture in runner:iter_captures(cursor) do
     if capture:name():sub(1, 1) ~= '_' then
       for i = capture:node():start_byte() + 1, capture:node():end_byte() do
@@ -135,7 +99,7 @@ function SyntaxHighlighter:run()
   stderr.info(here, 'highlights done in ', math.floor(1e3 * (utils.timer() - start)), 'ms')
 
   local start = utils.timer()
-  local cursor = treesitter.Query.Cursor.new(grammar.locals(), tree:root_node())
+  local cursor = treesitter.Query.Cursor.new(self.grammar.locals(), self.tree:root_node())
   local scopes = {
     {
       from = 1,
@@ -157,14 +121,14 @@ function SyntaxHighlighter:run()
         highlight_for = setmetatable({}, { __index = scopes[#scopes].highlight_for }),
       })
     elseif capture:name() == 'local.definition' then
-      scopes[#scopes].highlight_for[self:read_node(capture:node())] = self.highlight_at[from]
+      scopes[#scopes].highlight_for[self.parser:read_node(capture:node())] = self.highlight_at[from]
       if self.is_debug then
         for i = from, to do
           self.debug_info_at[i] = self.debug_info_at[i] or capture:name()
         end
       end
     elseif capture:name() == 'local.reference' then
-      local name = scopes[#scopes].highlight_for[self:read_node(capture:node())]
+      local name = scopes[#scopes].highlight_for[self.parser:read_node(capture:node())]
       if name then
         for i = from, to do
           self.highlight_at[i] = name
@@ -182,16 +146,7 @@ function SyntaxHighlighter:run()
   stderr.info(here, 'locals done in ', math.floor(1e3 * (utils.timer() - start)), 'ms')
 end
 
-function SyntaxHighlighter:read_node(node)
-  return self.buffer:read(node:start_byte() + 1, node:end_byte())
-end
-
 -- IDEA: type parameters
--- BUG: figure out what to do with:
---      from timeit import default_timer
---      #       defined as ^^^^^^^^^^^^^ "variable"
---      print(default_timer())
---      #     ^^^^^^^^^^^^^ referenced
 
 SyntaxHighlighter.base_fallbacks = {
   comment                = false,

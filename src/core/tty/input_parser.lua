@@ -561,7 +561,7 @@ function InputParser:drop_kitty_functional_key(buf, offset)
 end
 
 function InputParser:take_key(buf, offset)
-  local alt = buf:byte(offset) == 27 and #buf > 1
+  local alt = buf:byte(offset) == 27 and offset + 1 <= #buf
   local has_codepoint, new_offset = pcall(utf8.offset, buf, 2, offset + (alt and 1 or 0))
   if not has_codepoint then
     return nil, offset

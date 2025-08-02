@@ -36,7 +36,9 @@ pub var is_open = false;
 pub var file: if(builtin.os.tag == .windows) struct { in: File, out: File } else File = undefined;
 pub var reader: File.Reader = undefined;
 // The buffer should be big enough to hold the entire screen in order to prevent
-// flickering during redraws. The difference is especially noticeable in xterm.
+// flickering during redraws but we shouldn't care about redraws which are too
+// slow anyways. The difference the buffer size makes is especially noticeable
+// in xterm.
 pub var writer: std.io.BufferedWriter(65536, File.Writer) = undefined;
 
 fn open(vm: *lua.Lua) i32  {

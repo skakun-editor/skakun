@@ -117,7 +117,13 @@ function utils.tostring(value, visited)
     for k in pairs(value) do
       table.insert(keys, k)
     end
-    table.sort(keys)
+    table.sort(keys, function(a, b)
+      if type(a) == type(b) then
+        return a < b
+      else
+        return type(a) < type(b)
+      end
+    end)
 
     local result = '{\n'
     for _, k in ipairs(keys) do

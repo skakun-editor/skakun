@@ -245,6 +245,16 @@ fn prev(vm: *lua.Lua) i32 {
   return 1;
 }
 
+fn skip(vm: *lua.Lua) i32 {
+  const self = vm.checkUserdata(Buffer.Iterator, 1, "core.buffer.iter");
+  const count = vm.checkInteger(2);
+  if(count < 0) {
+    vm.raiseErrorStr("count is negative", .{});
+  }
+  self.skip(@intCast(count)) catch |err| raise_err(vm, err, null);
+  return 0;
+}
+
 fn rewind(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(Buffer.Iterator, 1, "core.buffer.iter");
   const count = vm.checkInteger(2);
@@ -289,6 +299,7 @@ const iter_methods = [_]lua.FnReg{
   .{ .name = "__gc", .func = lua.wrap(__gc_iter) },
   .{ .name = "next", .func = lua.wrap(next) },
   .{ .name = "prev", .func = lua.wrap(prev) },
+  .{ .name = "skip", .func = lua.wrap(skip) },
   .{ .name = "rewind", .func = lua.wrap(rewind) },
   .{ .name = "next_codepoint", .func = lua.wrap(next_codepoint) },
   .{ .name = "next_grapheme", .func = lua.wrap(next_grapheme) },

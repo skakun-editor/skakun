@@ -1,5 +1,6 @@
 #!/bin/sh
 
-zig build run -Doptimize=ReleaseSafe -- "$@"
-reset
+FLAGS=-Doptimize=ReleaseSafe
+zig build $FLAGS || exit 1
+zig build $FLAGS run -- "$@" || reset
 ./last-log.sh

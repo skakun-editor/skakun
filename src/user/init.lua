@@ -20,11 +20,28 @@ local gruvbox_light     = require('theme.gruvbox_light')
 -- TODO: logo
 -- HACK: update docs when you're finished lol
 -- TODO: autosave when idle
+-- TODO: locks using the close feature
 
 core.should_forward_stderr_on_exit = false
 utils.lock_globals()
 table.insert(core.cleanups, tty.restore)
 tty.setup()
+
+local names = {'red', 'orange', 'yellow', 'green', 'cyan', 'blue'}
+local width = 0
+for _, name in ipairs(names) do
+  width = math.max(width, #name)
+end
+for _, name in ipairs(names) do
+  stderr.info(
+    here,
+    ('%-' .. width .. 's'):format(name),
+    ' ',
+    ('dark (%.2f %.2f %6.2f)'):format(fruitmash_dark.true_color.colors[name]:oklch()),
+    ' ',
+    ('light (%.2f %.2f %6.2f)'):format(fruitmash_light.true_color.colors[name]:oklch())
+  )
+end
 
 SyntaxHighlighter.is_debug = true
 
