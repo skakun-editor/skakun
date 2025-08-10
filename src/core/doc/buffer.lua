@@ -14,8 +14,9 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-local Buffer = require('core.buffer')
-local utils  = require('core.utils')
+local Buffer    = require('core.buffer')
+local Navigator = require('core.doc.navigator')
+local utils     = require('core.utils')
 
 local DocBuffer = {}
 DocBuffer.__index = DocBuffer
@@ -26,6 +27,7 @@ function DocBuffer.new(doc, raw)
     raw = raw or Buffer.new(),
     is_frozen = false,
     freeze_time = nil,
+    navigator = nil,
 
     root = nil,
     depth = 0,
@@ -136,6 +138,7 @@ function DocBuffer:freeze()
   if not self.is_frozen then
     self.is_frozen = true
     self.freeze_time = utils.timer()
+    self.navigator = Navigator.new(self)
   end
 end
 

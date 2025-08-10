@@ -27,13 +27,6 @@ local Navigator = {
 }
 Navigator.__index = Navigator
 
-function Navigator.of(buffer)
-  if not buffer._navigator then
-    buffer._navigator = Navigator.new(buffer)
-  end
-  return buffer._navigator
-end
-
 function Navigator.new(buffer)
   if not buffer.is_frozen then
     error('buffer is not frozen')

@@ -74,6 +74,10 @@ while true do
   root.width = width
   root.height = height
 
+  if root.is_queued_for_draw then
+    should_redraw = true
+  end
+
   if should_redraw then
     should_redraw = false
 

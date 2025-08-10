@@ -15,7 +15,7 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local here = ...
-local Navigator         = require('core.doc.navigator')
+local Parser            = require('core.doc.parser')
 local SpellChecker      = require('core.doc.spell_checker')
 local SyntaxHighlighter = require('core.doc.syntax_highlighter')
 local stderr            = require('core.stderr')
@@ -24,7 +24,6 @@ local Widget            = require('core.ui.widget')
 local utils             = require('core.utils')
 
 -- HACK: bring back soft wrapping
--- BUG: syntax highlighter and spell checker co-op
 -- TODO: some nicer way of binding key shortcuts
 -- TODO: line numbers
 -- TODO: proper undo and redo
@@ -80,17 +79,46 @@ function DocView.new(doc)
   self:clear_selections()
   self:add_selection(1, 0)
 
+  self.parser = Parser.new()
+  self.syntax_highlighter = SyntaxHighlighter.new()
+  self.spell_checker = SpellChecker.new()
+
   return self
 end
 
 function DocView:draw()
   Widget.draw(self)
   self.drawn.buffer = self.doc.buffer
-  SyntaxHighlighter.of(self.doc.buffer):refresh()
-  SpellChecker.of(self.doc.buffer):refresh()
+  self:start_background_tasks()
   self:sync_selections()
   self:layout_lines()
   self:draw_lines()
+end
+
+function DocView:start_background_tasks()
+  local buffer = self.doc.buffer
+  local function on_parsed(tree, grammar)
+    if buffer ~= self.doc.buffer then return end
+    if tree and grammar and self.syntax_highlighter:does_need_run(buffer, tree, grammar) then
+      self.syntax_highlighter:stop()
+      self.syntax_highlighter:run(buffer, tree, grammar, function()
+        self:queue_draw()
+      end)
+    end
+    if self.spell_checker:does_need_run(buffer, tree, grammar) then
+      self.spell_checker:stop()
+      self.spell_checker:run(buffer, tree, grammar, function()
+        self:queue_draw()
+      end)
+    end
+  end
+  if self.parser:does_need_run(buffer) then
+    self.parser:stop()
+    self.parser:run(buffer, on_parsed)
+  else
+    local _, tree, grammar = self.parser:cached_parse_of(buffer)
+    on_parsed(tree, grammar)
+  end
 end
 
 function DocView:layout_lines()
@@ -118,7 +146,7 @@ function DocView:draw_lines()
     tty.move_to(x, y)
 
     local line_start = self.drawn.lines[y - self.y + 1]
-    local loc = Navigator.of(self.doc.buffer):locate_line_col(line_start.line, line_start.col)
+    local loc = self.doc.buffer.navigator:locate_line_col(line_start.line, line_start.col)
     local iter = self.doc.buffer:iter(loc.byte)
 
     if loc.col < line_start.col then
@@ -162,15 +190,18 @@ function DocView:next_grapheme(iter, loc)
   elseif not result or result == '\n' then
     result = nil
   elseif result == '\t' then
-    local tab_width = Navigator.of(self.doc.buffer).tab_width
+    local tab_width = self.doc.buffer.navigator.tab_width
     result = (' '):rep(tab_width - (loc.col - 1) % tab_width)
   elseif self.ctrl_pics[result] then
     result = self.ctrl_pics[result]
     is_invalid = true
   end
 
-  local face = utils.copy(not is_invalid and (self.faces.syntax_highlights[SyntaxHighlighter.of(self.doc.buffer).highlight_at[loc.byte]] or self.faces.normal) or self.faces.invalid)
-  if SpellChecker.of(self.doc.buffer).is_correct[loc.byte] == false then
+  local _, highlight_at = self.syntax_highlighter:cached_highlight_of(self.doc.buffer)
+  local face = utils.copy(not is_invalid and (highlight_at and self.faces.syntax_highlights[highlight_at[loc.byte]] or self.faces.normal) or self.faces.invalid)
+
+  local _, is_correct = self.spell_checker:cached_check_of(self.doc.buffer)
+  if is_correct and is_correct[loc.byte] == false then
     face.underline = true
     face.underline_color = self.colors.misspelling
     face.underline_shape = 'curly'
@@ -202,7 +233,7 @@ function DocView:buffer_idx_drawn_at(x, y)
   end
   local drawn = self.drawn
   local line_start = drawn.lines[y - drawn.y + 1]
-  local loc = Navigator.of(drawn.buffer):locate_line_col(line_start.line, line_start.col + x - drawn.x)
+  local loc = drawn.buffer.navigator:locate_line_col(line_start.line, line_start.col + x - drawn.x)
   return self.doc.buffer:carry_idx_over(loc.byte, drawn.buffer)
 end
 
@@ -312,7 +343,7 @@ function DocView:handle_event(event)
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'backspace' then
     self:sync_selections()
     local buffer = self.doc.buffer:thaw()
-    local nav = Navigator.of(self.doc.buffer)
+    local nav = self.doc.buffer.navigator
     local shift = 0
     for _, sel in self.selections:elems() do
       sel.idx = sel.idx + shift
@@ -341,7 +372,7 @@ function DocView:handle_event(event)
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'delete' then
     self:sync_selections()
     local buffer = self.doc.buffer:thaw()
-    local nav = Navigator.of(self.doc.buffer)
+    local nav = self.doc.buffer.navigator
     local shift = 0
     for _, sel in self.selections:elems() do
       sel.idx = sel.idx + shift
@@ -398,15 +429,15 @@ end
 function DocView:sync_view_start()
   local start = self.view_start
   if start.buffer ~= self.doc.buffer then
-    local loc = Navigator.of(start.buffer):locate_line_col(start.line, start.col)
-    start.line = Navigator.of(self.doc.buffer):locate_byte(self.doc.buffer:carry_idx_over(loc.byte, start.buffer)).line
+    local loc = start.buffer.navigator:locate_line_col(start.line, start.col)
+    start.line = self.doc.buffer.navigator:locate_byte(self.doc.buffer:carry_idx_over(loc.byte, start.buffer)).line
     start.buffer = self.doc.buffer
   end
 end
 
 function DocView:adjust_view_to_contain_idx(idx)
   self:sync_view_start()
-  local loc = Navigator.of(self.doc.buffer):locate_byte(idx)
+  local loc = self.doc.buffer.navigator:locate_byte(idx)
   local start = self.view_start
   local margin = 2 * self.view_containment_margin + 1 <= self.height and self.view_containment_margin or 0
   start.line = math.max(math.min(start.line, loc.line - margin), loc.line + margin - self.height + 1, 1)
@@ -445,7 +476,7 @@ end
 
 function DocView:move_cursors_left(should_curtail_selections)
   assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
-  local nav = Navigator.of(self.doc.buffer)
+  local nav = self.doc.buffer.navigator
   for _, sel in self.selections:elems() do
     local cursor
     if should_curtail_selections and sel.len ~= 0 then
@@ -467,7 +498,7 @@ end
 
 function DocView:move_cursors_right(should_curtail_selections)
   assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
-  local nav = Navigator.of(self.doc.buffer)
+  local nav = self.doc.buffer.navigator
   for _, sel in self.selections:elems() do
     local cursor
     if should_curtail_selections and sel.len ~= 0 then
@@ -488,7 +519,7 @@ end
 
 function DocView:move_cursors_to_line_start(should_curtail_selections)
   assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
-  local nav = Navigator.of(self.doc.buffer)
+  local nav = self.doc.buffer.navigator
   for _, sel in self.selections:elems() do
     local cursor = nav:locate_line_col(nav:locate_byte(sel.idx + sel.len).line, 1).byte
     if should_curtail_selections then
@@ -504,7 +535,7 @@ end
 
 function DocView:move_cursors_to_line_end(should_curtail_selections)
   assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
-  local nav = Navigator.of(self.doc.buffer)
+  local nav = self.doc.buffer.navigator
   for _, sel in self.selections:elems() do
     local cursor = nav:locate_line_col(nav:locate_byte(sel.idx + sel.len).line, math.huge).byte
     if should_curtail_selections then
@@ -520,7 +551,6 @@ end
 
 function DocView:move_cursors_to_buffer_start(should_curtail_selections)
   assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
-  local nav = Navigator.of(self.doc.buffer)
   local cursor = 1
   for _, sel in self.selections:elems() do
     if should_curtail_selections then
@@ -536,7 +566,6 @@ end
 
 function DocView:move_cursors_to_buffer_end(should_curtail_selections)
   assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
-  local nav = Navigator.of(self.doc.buffer)
   local cursor = #self.doc.buffer + 1
   for _, sel in self.selections:elems() do
     if should_curtail_selections then
@@ -553,7 +582,7 @@ end
 function DocView:move_cursors_up(count, should_curtail_selections)
   assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
   if count <= 0 then return end
-  local nav = Navigator.of(self.doc.buffer)
+  local nav = self.doc.buffer.navigator
   for _, sel in self.selections:elems() do
     local loc = nav:locate_byte(sel.idx + sel.len)
     sel.col_hint = sel.col_hint or loc.col
@@ -572,7 +601,7 @@ end
 function DocView:move_cursors_down(count, should_curtail_selections)
   assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
   if count <= 0 then return end
-  local nav = Navigator.of(self.doc.buffer)
+  local nav = self.doc.buffer.navigator
   for _, sel in self.selections:elems() do
     local loc = nav:locate_byte(sel.idx + sel.len)
     sel.col_hint = sel.col_hint or loc.col

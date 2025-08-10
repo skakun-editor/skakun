@@ -22,6 +22,60 @@ local utils   = require('core.utils')
 local binding = require('lua_tree_sitter')
 
 local treesitter = setmetatable({
+  predicates = {
+    ['eq?'] = function(read_node, capture, other)
+      if type(other) ~= 'string' then
+        other = read_node(other:one_node())
+      end
+      for _, node in ipairs(capture:nodes()) do
+        if read_node(node) ~= other then
+          return false
+        end
+      end
+      return true
+    end,
+
+    ['not-eq?'] = function(read_node, capture, other)
+      if type(other) ~= 'string' then
+        other = read_node(other:one_node())
+      end
+      for _, node in ipairs(capture:nodes()) do
+        if read_node(node) == other then
+          return false
+        end
+      end
+      return true
+    end,
+
+    ['match?'] = function(read_node, capture, regex)
+      for _, node in ipairs(capture:nodes()) do
+        if not read_node(node):find(regex) then
+          return false
+        end
+      end
+      return true
+    end,
+
+    ['not-match?'] = function(read_node, capture, regex)
+      for _, node in ipairs(capture:nodes()) do
+        if read_node(node):find(regex) then
+          return false
+        end
+      end
+      return true
+    end,
+
+    ['any-of?'] = function(read_node, capture, ...)
+      local str = read_node(capture:one_node())
+      for i = 1, select('#', ...) do
+        if str == select(i, ...) then
+          return true
+        end
+      end
+      return false
+    end,
+  },
+
   grammars = {},
 }, { __index = binding })
 
@@ -201,6 +255,16 @@ function treesitter.grammar_for_path(path)
       end
     end
   end
+end
+
+function treesitter.predicates_with(read_node)
+  local result = {}
+  for name, func in pairs(treesitter.predicates) do
+    result[name] = function(...)
+      return func(read_node, ...)
+    end
+  end
+  return result
 end
 
 return treesitter

@@ -25,6 +25,7 @@ function Widget.new()
     width = nil,
     height = nil,
     drawn = nil,
+    is_queued_for_draw = false,
   }, Widget)
 end
 
@@ -35,6 +36,7 @@ function Widget:draw()
     width = self.width,
     height = self.height,
   }
+  self.is_queued_for_draw = false
 end
 
 function Widget:handle_event() end
@@ -42,6 +44,13 @@ function Widget:handle_event() end
 function Widget:drawn_bounds()
   local drawn = self.drawn
   return drawn.x, drawn.y, drawn.x + drawn.width - 1, drawn.y + drawn.height - 1
+end
+
+function Widget:queue_draw()
+  self.is_queued_for_draw = true
+  if self.parent then
+    self.parent:queue_draw()
+  end
 end
 
 return Widget

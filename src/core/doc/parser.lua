@@ -19,160 +19,137 @@ local stderr     = require('core.stderr')
 local treesitter = require('core.treesitter')
 local utils      = require('core.utils')
 
-local grammars_version = 0
-local continue = treesitter.on_grammars_change
-function treesitter.on_grammars_change()
-  grammars_version = grammars_version + 1
-  continue()
-end
-
-local Parser = {
-  predicates = {
-    ['eq?'] = function(self, capture, other)
-      if type(other) ~= 'string' then
-        other = self:read_node(other:one_node())
-      end
-      for _, node in ipairs(capture:nodes()) do
-        if self:read_node(node) ~= other then
-          return false
-        end
-      end
-      return true
-    end,
-
-    ['not-eq?'] = function(self, capture, other)
-      if type(other) ~= 'string' then
-        other = self:read_node(other:one_node())
-      end
-      for _, node in ipairs(capture:nodes()) do
-        if self:read_node(node) == other then
-          return false
-        end
-      end
-      return true
-    end,
-
-    ['match?'] = function(self, capture, regex)
-      for _, node in ipairs(capture:nodes()) do
-        if not self:read_node(node):find(regex) then
-          return false
-        end
-      end
-      return true
-    end,
-
-    ['not-match?'] = function(self, capture, regex)
-      for _, node in ipairs(capture:nodes()) do
-        if self:read_node(node):find(regex) then
-          return false
-        end
-      end
-      return true
-    end,
-
-    ['any-of?'] = function(self, capture, ...)
-      local str = self:read_node(capture:one_node())
-      for i = 1, select('#', ...) do
-        if str == select(i, ...) then
-          return true
-        end
-      end
-      return false
-    end,
-  },
-}
+local Parser = {}
 Parser.__index = Parser
 
-function Parser.of(buffer)
-  if not buffer._parser then
-    buffer._parser = Parser.new(buffer)
-  end
-  return buffer._parser
-end
-
-function Parser.new(buffer)
-  if not buffer.is_frozen then
-    error('buffer is not frozen')
-  end
-  local self = setmetatable({
-    buffer = buffer,
-    grammar = nil,
-    tree = nil,
-
+function Parser.new()
+  return setmetatable({
+    cache = setmetatable({}, { __mode = 'k' }),
     worker = nil,
-    lock = thread.newlock(),
     is_stopping = false,
-    grammars_version = nil,
+    stopped_jobs = setmetatable({}, { __mode = 'k' }),
   }, Parser)
-  return self
 end
 
-function Parser:refresh()
-  self.lock:acquire()
-  if self.grammars_version ~= grammars_version and not self.is_stopping then
-    self.is_stopping = true
-    if self.worker then
-      self.worker:join()
-    end
-    self.worker = thread.new(xpcall, self.run, function(err)
-      stderr.error(here, debug.traceback(err, 2))
-    end, self)
+function Parser:does_need_run(buffer)
+  local worker = self.worker
+  if worker and not worker.thread:join(0) and worker.buffer == buffer and worker.job.grammar == self:grammar_for(buffer) then
+    return false
   end
-  self.lock:release()
+  -- Checking the cache after the running job should be less data-racey
+  -- because the condition below is set before the condition above is unset.
+  local cached = self.cache[buffer]
+  if cached and cached.grammar == self:grammar_for(buffer) then
+    return false
+  end
+  return true
 end
 
-function Parser:run()
-  self.grammars_version = grammars_version
-  self.is_stopping = false
+function Parser:run(buffer, callback)
+  local worker = self.worker
+  assert(not worker or worker:join(0))
 
-  self.grammar = treesitter.grammar_for_path(self.buffer.doc.path or '')
-  if not self.grammar then
-    self.tree = nil
-    return
+  local job = self.stopped_jobs[buffer]
+  local grammar = self:grammar_for(buffer)
+  if not job or job.grammar ~= grammar then
+    job = {
+      grammar = grammar,
+      coroutine = coroutine.wrap(function()
+        return self:parse(buffer, grammar, true)
+      end),
+    }
   end
 
+  self.worker = {
+    buffer = buffer,
+    job = job,
+    thread = thread.new(
+      xpcall,
+      function()
+        local tree, grammar = job.coroutine()
+        if self.is_stopping then
+          self.stopped_jobs[buffer] = job
+        else
+          callback(tree, grammar)
+        end
+        self.worker = nil
+      end,
+      function(err)
+        stderr.error(here, debug.traceback(err, 2))
+        self.worker = nil
+      end
+    ),
+  }
+end
+
+function Parser:stop()
+  local worker = self.worker
+  if worker then
+    worker.thread:join()
+  end
+end
+
+function Parser:cached_parse_of(buffer)
+  local cached = self.cache[buffer]
+  if cached then
+    return true, cached.tree, cached.grammar
+  else
+    return true, nil, nil
+  end
+end
+
+function Parser:parse(buffer, grammar, is_async)
+  assert(buffer.is_frozen)
+  grammar = grammar or self:grammar_for(buffer)
   local start = utils.timer()
 
+  local cached = self.cache[buffer]
+  if cached and cached.grammar == grammar then
+    return cached.tree, cached.grammar
+  end
+
+  if not grammar then
+    self.cache[buffer] = nil
+    return nil, nil
+  end
+
   local tree = nil
-  if self.buffer.parent then
-    local parent = Parser.of(self.buffer.parent)
-    parent:refresh()
-    while not parent.tree do
-      thread.sleep(0.01)
-    end
-    tree = parent.tree:copy()
-    local dummy = treesitter.Point.new(0, 0)
-    for i = #self.buffer.parent_diff, 1, -1 do
-      local edit = self.buffer.parent_diff[i]
-      local idx = edit.old_idx - 1
-      tree:edit(idx, idx + edit.old_len, idx + edit.new_len, dummy, dummy, dummy)
+  if buffer.parent then
+    local parent_tree, parent_grammar = self:parse(buffer.parent)
+    if parent_grammar == grammar then
+      tree = parent_tree:copy()
+      local dummy = treesitter.Point.new(0, 0)
+      for i = #buffer.parent_diff, 1, -1 do
+        local edit = buffer.parent_diff[i]
+        local idx = edit.old_idx - 1
+        tree:edit(idx, idx + edit.old_len, idx + edit.new_len, dummy, dummy, dummy)
+        if is_async and self.is_stopping then
+          coroutine.yield()
+        end
+      end
     end
   end
 
   local parser = treesitter.Parser:new()
-  parser:set_language(self.grammar.lang)
-  self.tree = parser:parse(tree, function(idx)
-    return self.buffer:read(idx + 1, math.min(idx + 1000000, #self.buffer))
+  parser:set_language(grammar.lang)
+  tree = parser:parse(tree, function(idx)
+    return buffer:read(idx + 1, math.min(idx + 1000000, #buffer))
   end)
 
   local millis = math.floor(1e3 * (utils.timer() - start))
   if millis > 20 then
     stderr.warn(here, 'slow parse took ', millis, 'ms')
   end
+
+  self.cache[buffer] = {
+    tree = tree,
+    grammar = grammar,
+  }
+  return tree, grammar
 end
 
-function Parser:get_predicates()
-  local result = {}
-  for name, func in pairs(self.predicates) do
-    result[name] = function(...)
-      return func(self, ...)
-    end
-  end
-  return result
-end
-
-function Parser:read_node(node)
-  return self.buffer:read(node:start_byte() + 1, node:end_byte())
+function Parser:grammar_for(buffer)
+  return treesitter.grammar_for_path(buffer.doc.path or '')
 end
 
 return Parser

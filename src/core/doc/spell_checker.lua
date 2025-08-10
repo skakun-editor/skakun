@@ -15,7 +15,6 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local here = ...
-local Parser     = require('core.doc.parser')
 local enchant    = require('core.enchant')
 local stderr     = require('core.stderr')
 local treesitter = require('core.treesitter')
@@ -26,66 +25,126 @@ local SpellChecker = {
 }
 SpellChecker.__index = SpellChecker
 
-function SpellChecker.of(buffer)
-  if not buffer._spell_checker then
-    buffer._spell_checker = SpellChecker.new(buffer)
-  end
-  return buffer._spell_checker
-end
-
-function SpellChecker.new(buffer)
-  if not buffer.is_frozen then
-    error('buffer is not frozen')
-  end
-  local self = setmetatable({
-    buffer = buffer,
-    is_correct = {},
-
+function SpellChecker.new()
+  return setmetatable({
+    cache = setmetatable({}, { __mode = 'k' }),
     worker = nil,
-    lock = thread.newlock(),
     is_stopping = false,
-    parser = Parser.of(buffer),
-    grammar = nil,
-    tree = nil,
+    stopped_jobs = setmetatable({}, { __mode = 'k' }),
   }, SpellChecker)
-  return self
 end
 
-function SpellChecker:refresh()
-  self.parser:refresh()
-  self.lock:acquire()
-  if self.tree ~= self.parser.tree and not self.is_stopping then -- BUG: fails if no grammar
-    self.is_stopping = true
-    if self.worker then
-      self.worker:join()
+function SpellChecker:does_need_run(buffer, tree, grammar)
+  local worker = self.worker
+  if worker and not worker.thread:join(0) and worker.buffer == buffer then
+    local job = worker.job
+    if job.tree == tree and job.grammar == grammar and job.dict == self:dict_for(buffer) then
+      return false
     end
-    self.worker = thread.new(xpcall, self.run, function(err)
-      stderr.error(here, debug.traceback(err, 2))
-    end, self)
   end
-  self.lock:release()
+  -- Checking the cache after the running job should be less data-racey
+  -- because the condition below is set before the condition above is unset.
+  local cached = self.cache[buffer]
+  if cached and cached.is_complete and cached.tree == tree and cached.grammar == grammar and cached.dict == self:dict_for(buffer) then
+    return false
+  end
+  return true
 end
 
-function SpellChecker:run()
-  self.grammar = self.parser.grammar
-  self.tree = self.parser.tree
-  self.is_stopping = false
+function SpellChecker:run(buffer, tree, grammar, callback)
+  local worker = self.worker
+  assert(not worker or worker.thread:join(0))
 
-  -- The following sequence of environment variable accesses is apparently
-  -- how gettext figures out what language to display system messages in.
-  self.dict = self.broker:request_dict(self.buffer.doc.spell_checker_dict or os.getenv('LANGUAGE') or os.getenv('LC_ALL') or os.getenv('LC_MESSAGES') or os.getenv('LANG') or 'en')
-  if not self.dict then return end
+  local job = self.stopped_jobs[buffer]
+  local dict = self:dict_for(buffer)
+  if not job or job.tree ~= tree or job.grammar ~= grammar or job.dict ~= dict then
+    job = {
+      tree = tree,
+      grammar = grammar,
+      dict = dict,
 
+      coroutine = coroutine.wrap(function()
+        return self:check(buffer, tree, grammar, dict, true)
+      end),
+    }
+  end
+
+  self.worker = {
+    buffer = buffer,
+    job = job,
+    thread = thread.new(
+      xpcall,
+      function()
+        local is_correct = job.coroutine()
+        if self.is_stopping then
+          self.stopped_jobs[buffer] = job
+        else
+          callback(is_correct)
+        end
+        self.worker = nil
+      end,
+      function(err)
+        stderr.error(here, debug.traceback(err, 2))
+        self.worker = nil
+      end
+    ),
+  }
+end
+
+function SpellChecker:stop()
+  local worker = self.worker
+  if worker then
+    self.is_stopping = true
+    worker.thread:join()
+    self.is_stopping = false
+  end
+end
+
+function SpellChecker:cached_check_of(buffer)
+  local cached = self.cache[buffer]
+  if cached then
+    return cached.is_complete, cached.is_correct
+  else
+    return true, nil
+  end
+end
+
+function SpellChecker:check(buffer, tree, grammar, dict, is_async)
+  assert(buffer.is_frozen)
+  dict = dict or self:dict_for(buffer)
   local start = utils.timer()
 
+  local cached = self.cache[buffer]
+  if cached and cached.is_complete and cached.tree == tree and cached.grammar == grammar and cached.dict == dict then
+    return cached.is_correct
+  end
+
+  local enchant_dict = self.broker:request_dict(dict)
+  if not enchant_dict then
+    self.cached[buffer] = nil
+    return nil
+  end
+
+  local is_correct = {}
+  self.cache[buffer] = {
+    is_complete = false,
+    is_correct = is_correct,
+
+    tree = tree,
+    grammar = grammar,
+    dict = dict,
+  }
+
   local idx = 1
-  local iter = self.buffer:iter()
-  local stack = {{ from = 1, to = #self.buffer, should_check = not self.tree }}
+  local iter = buffer:iter()
+  local stack = {{ from = 1, to = #buffer, should_check = not tree }}
 
   local capture_iter = nil
   local next_capture = nil
-  if self.tree then
-    capture_iter = treesitter.Query.Runner.new(self.parser:get_predicates()):iter_captures(treesitter.Query.Cursor.new(self.grammar.spelling(), self.tree:root_node()))
+  if tree then
+    capture_iter = treesitter.Query.Runner.new(treesitter.predicates_with(function(node)
+      return buffer:read(node:start_byte() + 1, node:end_byte())
+    end)):iter_captures(treesitter.Query.Cursor.new(grammar.spelling(), tree:root_node()))
     next_capture = capture_iter()
   end
 
@@ -94,15 +153,15 @@ function SpellChecker:run()
   local word_end
   local function flush_word()
     if #word > 0 and word_end then
-      local is_correct = self.dict:check(word:sub(1, word_end - word_start + 1))
+      local is_word_correct = enchant_dict:check(word:sub(1, word_end - word_start + 1))
       for i = word_start, word_end do
-        self.is_correct[i] = is_correct
+        is_correct[i] = is_word_correct
       end
     end
     word = ''
   end
 
-  while idx <= #self.buffer do
+  while idx <= #buffer do
     while idx > stack[#stack].to do
       table.remove(stack)
     end
@@ -135,20 +194,24 @@ function SpellChecker:run()
         idx = idx + iter:last_advance()
 
         if #word > 0 then
-          if self.dict:is_word_character(codepoint, 2) then
+          if enchant_dict:is_word_character(codepoint, 2) then
             word_end = idx - 1
           end
-          if self.dict:is_word_character(codepoint, 1) then
+          if enchant_dict:is_word_character(codepoint, 1) then
             word = word .. utf8.char(codepoint)
           else
             flush_word()
           end
         end
 
-        if #word == 0 and self.dict:is_word_character(codepoint, 0) and word_end ~= idx - 1 then
+        if #word == 0 and enchant_dict:is_word_character(codepoint, 0) and word_end ~= idx - 1 then
           word = utf8.char(codepoint)
           word_start = idx - iter:last_advance()
           word_end = nil
+        end
+
+        if is_async and self.is_stopping then
+          coroutine.yield()
         end
       end
 
@@ -161,7 +224,19 @@ function SpellChecker:run()
 
   flush_word()
 
-  stderr.info(here, 'spell checking done in ', math.floor(1e3 * (utils.timer() - start)), 'ms')
+  local millis = math.floor(1e3 * (utils.timer() - start))
+  if millis > 100 then
+    stderr.warn(here, 'slow check took ', millis, 'ms')
+  end
+
+  self.cache[buffer].is_complete = true
+  return is_correct
+end
+
+function SpellChecker:dict_for(buffer)
+  -- The following sequence of environment variable accesses is apparently
+  -- how gettext figures out what language to display system messages in.
+  return buffer.doc.spell_checker_dict or os.getenv('LANGUAGE') or os.getenv('LC_ALL') or os.getenv('LC_MESSAGES') or os.getenv('LANG') or 'en'
 end
 
 return SpellChecker

@@ -15,91 +15,150 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local here = ...
-local Parser     = require('core.doc.parser')
 local stderr     = require('core.stderr')
 local treesitter = require('core.treesitter')
 local utils      = require('core.utils')
-
-local grammars_version = 0
-local continue = treesitter.on_grammars_change
-function treesitter.on_grammars_change()
-  grammars_version = grammars_version + 1
-  continue()
-end
 
 local SyntaxHighlighter = {
   is_debug = false,
 }
 SyntaxHighlighter.__index = SyntaxHighlighter
 
-function SyntaxHighlighter.of(buffer)
-  if not buffer._syntax_highlighter then
-    buffer._syntax_highlighter = SyntaxHighlighter.new(buffer)
-  end
-  return buffer._syntax_highlighter
-end
-
-function SyntaxHighlighter.new(buffer)
-  if not buffer.is_frozen then
-    error('buffer is not frozen')
-  end
-  local self = setmetatable({
-    buffer = buffer,
-    highlight_at = {},
-    debug_info_at = {},
-
+function SyntaxHighlighter.new()
+  return setmetatable({
+    cache = setmetatable({}, { __mode = 'k' }),
     worker = nil,
-    lock = thread.newlock(),
     is_stopping = false,
-    parser = Parser.of(buffer),
-    grammar = nil,
-    tree = nil,
+    stopped_jobs = setmetatable({}, { __mode = 'k' }),
   }, SyntaxHighlighter)
-  return self
 end
 
-function SyntaxHighlighter:refresh()
-  self.parser:refresh()
-  self.lock:acquire()
-  if self.tree ~= self.parser.tree and not self.is_stopping then
-    self.is_stopping = true
-    if self.worker then
-      self.worker:join()
+
+function SyntaxHighlighter:does_need_run(buffer, tree, grammar)
+  local worker = self.worker
+  if worker and not worker.thread:join(0) and worker.buffer == buffer then
+    local job = worker.job
+    if job.tree == tree and job.grammar == grammar then
+      return false
     end
-    self.worker = thread.new(xpcall, self.run, function(err)
-      stderr.error(here, debug.traceback(err, 2))
-    end, self)
   end
-  self.lock:release()
+  -- Checking the cache after the running job should be less data-racey
+  -- because the condition below is set before the condition above is unset.
+  local cached = self.cache[buffer]
+  if cached and cached.is_complete and cached.tree == tree and cached.grammar == grammar then
+    return false
+  end
+  return true
 end
 
-function SyntaxHighlighter:run()
-  self.grammar = self.parser.grammar
-  self.tree = self.parser.tree
-  self.is_stopping = false
+function SyntaxHighlighter:run(buffer, tree, grammar, callback)
+  local worker = self.worker
+  assert(not worker or worker.thread:join(0))
 
-  if not self.tree then
-    self.highlight_at = {}
-    self.debug_info_at = {}
-    return
+  local job = self.stopped_jobs[buffer]
+  if not job or job.tree ~= tree or job.grammar ~= grammar then
+    job = {
+      tree = tree,
+      grammar = grammar,
+
+      coroutine = coroutine.wrap(function()
+        return self:highlight(buffer, tree, grammar, true)
+      end),
+    }
   end
 
-  local runner = treesitter.Query.Runner.new(self.parser:get_predicates())
+  self.worker = {
+    buffer = buffer,
+    job = job,
+    thread = thread.new(
+      xpcall,
+      function()
+        local highlight_at, debug_info_at = job.coroutine()
+        if self.is_stopping then
+          self.stopped_jobs[buffer] = job
+        else
+          callback(highlight_at, debug_info_at)
+        end
+        self.worker = nil
+      end,
+      function(err)
+        stderr.error(here, debug.traceback(err, 2))
+        self.worker = nil
+      end
+    ),
+  }
+end
+
+function SyntaxHighlighter:stop()
+  local worker = self.worker
+  if worker then
+    self.is_stopping = true
+    worker.thread:join()
+    self.is_stopping = false
+  end
+end
+
+function SyntaxHighlighter:cached_highlight_of(buffer)
+  local cached = self.cache[buffer]
+  if cached then
+    return cached.is_complete, cached.highlight_at, cached.debug_info_at
+  else
+    return true, nil, nil
+  end
+end
+
+function SyntaxHighlighter:highlight(buffer, tree, grammar, is_async)
+  assert(buffer.is_frozen)
+
+  local cached = self.cache[buffer]
+  if cached and cached.is_complete and cached.tree == tree and cached.grammar == grammar then
+    return cached.highlight_at, cached.debug_info_at
+  end
+
+  local highlight_at = {}
+  local debug_info_at = self.is_debug and {} or nil
+  self.cache[buffer] = {
+    is_complete = false,
+    highlight_at = highlight_at,
+    debug_info_at = debug_info_at,
+
+    tree = tree,
+    grammar = grammar,
+  }
+
+  local parent = buffer.parent
+  while parent do
+    local cached = self.cache[parent]
+    if self.cache[parent] then
+      highlight_at = setmetatable(highlight_at, { __index = self.cache[parent].highlight_at })
+      break
+    end
+    parent = parent.parent
+  end
+
+  local function read_node(node)
+    return buffer:read(node:start_byte() + 1, node:end_byte())
+  end
+  local runner = treesitter.Query.Runner.new(treesitter.predicates_with(read_node))
 
   local start = utils.timer()
-  local cursor = treesitter.Query.Cursor.new(self.grammar.highlights(), self.tree:root_node())
-  for capture in runner:iter_captures(cursor) do
+  for capture in runner:iter_captures(treesitter.Query.Cursor.new(grammar.highlights(), tree:root_node())) do
     if capture:name():sub(1, 1) ~= '_' then
       for i = capture:node():start_byte() + 1, capture:node():end_byte() do
-        self.highlight_at[i] = capture:name()
+        highlight_at[i] = capture:name()
       end
     end
-    if self.is_stopping then return end
+
+    if is_async and self.is_stopping then
+      coroutine.yield()
+    end
   end
-  stderr.info(here, 'highlights done in ', math.floor(1e3 * (utils.timer() - start)), 'ms')
+  local millis = math.floor(1e3 * (utils.timer() - start))
+  if millis > 200 then
+    stderr.warn(here, 'slow highlights took ', millis, 'ms')
+  end
 
   local start = utils.timer()
-  local cursor = treesitter.Query.Cursor.new(self.grammar.locals(), self.tree:root_node())
   local scopes = {
     {
       from = 1,
@@ -107,7 +166,7 @@ function SyntaxHighlighter:run()
       highlight_for = {},
     },
   }
-  for capture in runner:iter_captures(cursor) do
+  for capture in runner:iter_captures(treesitter.Query.Cursor.new(grammar.locals(), tree:root_node())) do
     local from = capture:node():start_byte() + 1
     local to = capture:node():end_byte()
 
@@ -121,29 +180,41 @@ function SyntaxHighlighter:run()
         highlight_for = setmetatable({}, { __index = scopes[#scopes].highlight_for }),
       })
     elseif capture:name() == 'local.definition' then
-      scopes[#scopes].highlight_for[self.parser:read_node(capture:node())] = self.highlight_at[from]
-      if self.is_debug then
+      scopes[#scopes].highlight_for[read_node(capture:node())] = highlight_at[from]
+      if debug_info_at then
         for i = from, to do
-          self.debug_info_at[i] = self.debug_info_at[i] or capture:name()
+          debug_info_at[i] = debug_info_at[i] or capture:name()
         end
       end
     elseif capture:name() == 'local.reference' then
-      local name = scopes[#scopes].highlight_for[self.parser:read_node(capture:node())]
+      local name = scopes[#scopes].highlight_for[read_node(capture:node())]
       if name then
         for i = from, to do
-          self.highlight_at[i] = name
+          highlight_at[i] = name
         end
-        if self.is_debug then
+        if debug_info_at then
           for i = from, to do
-            self.debug_info_at[i] = self.debug_info_at[i] or capture:name()
+            debug_info_at[i] = debug_info_at[i] or capture:name()
           end
         end
       end
     end
 
-    if self.is_stopping then return end
+    if is_async and self.is_stopping then
+      coroutine.yield()
+    end
   end
-  stderr.info(here, 'locals done in ', math.floor(1e3 * (utils.timer() - start)), 'ms')
+  local millis = math.floor(1e3 * (utils.timer() - start))
+  if millis > 50 then
+    stderr.warn(here, 'slow locals took ', millis, 'ms')
+  end
+
+  local metatable = getmetatable(highlight_at)
+  if metatable then
+    metatable.__index = nil
+  end
+  self.cache[buffer].is_complete = true
+  return highlight_at, debug_info_at
 end
 
 -- IDEA: type parameters
@@ -170,6 +241,8 @@ SyntaxHighlighter.base_fallbacks = {
   type_keyword           = 'keyword',
   evaluation_branch      = 'keyword',
   evaluation_loop        = 'keyword',
+  evaluation_yield       = 'keyword',
+  evaluation_delay       = 'keyword',
   evaluation_end         = 'keyword',
   declaration            = 'keyword',
   declaration_modifier   = 'declaration',
