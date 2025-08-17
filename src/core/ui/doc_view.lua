@@ -156,7 +156,7 @@ function DocView:draw_lines()
       else
         loc.byte = loc.byte + iter:last_advance()
         loc.col = loc.col + tty.width_of(grapheme)
-        local width = loc.col - self.col
+        local width = loc.col - line_start.col
         if x + width - 1 >= self.x + self.width then break end
 
         tty.write((' '):rep(width))

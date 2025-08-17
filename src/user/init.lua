@@ -37,9 +37,9 @@ for _, name in ipairs(names) do
     here,
     ('%-' .. width .. 's'):format(name),
     ' ',
-    ('dark (%.2f %.2f %6.2f)'):format(fruitmash_dark.true_color.colors[name]:oklch()),
+    ('dark (%.3f %.3f %6.2f)'):format(fruitmash_dark.true_color.colors[name]:oklch()),
     ' ',
-    ('light (%.2f %.2f %6.2f)'):format(fruitmash_light.true_color.colors[name]:oklch())
+    ('light (%.3f %.3f %6.2f)'):format(fruitmash_light.true_color.colors[name]:oklch())
   )
 end
 
@@ -156,7 +156,7 @@ while true do
     should_redraw = true
   end
 
-  tty.wait_for_read(1)
+  tty.wait_for_read(0.1)
   for _, event in ipairs(tty.read_events()) do
     local start = utils.timer()
     if event.type == 'press' or event.type == 'repeat' then

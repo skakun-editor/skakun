@@ -55,7 +55,7 @@ function fruitmash_light.regenerate()
     yellow     = hsv( 45, 1.0, 0.8),
     green      = hsv(110, 1.0, 0.5),
     cyan       = hsv(190, 1.0, 0.65),
-    blue       = hsv(230, 0.59, 0.7),
+    blue       = hsv(225, 0.64, 0.7),
 
     error      = hsv( 0, 0.5, 1.0),
     warning    = hsv(60, 0.8, 0.7),
