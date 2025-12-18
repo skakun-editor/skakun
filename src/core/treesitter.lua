@@ -66,9 +66,9 @@ local treesitter = setmetatable({
     end,
 
     ['any-of?'] = function(read_node, capture, ...)
-      local str = read_node(capture:one_node())
+      local string = read_node(capture:one_node())
       for i = 1, select('#', ...) do
-        if str == select(i, ...) then
+        if string == select(i, ...) then
           return true
         end
       end

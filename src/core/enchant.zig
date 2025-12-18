@@ -112,7 +112,7 @@ fn broker_describe(vm: *lua.Lua) i32 {
 }
 
 fn broker_describe_callback(provider_name: [*:0]const u8, provider_desc: [*:0]const u8,
-                            provider_dll_file: [*:0]const u8, user_data: ?*anyopaque) callconv(.C) void
+                            provider_dll_file: [*:0]const u8, user_data: ?*anyopaque) callconv(.c) void
 {
   const vm: *lua.Lua = @ptrCast(user_data.?);
   if(vm.getTop() > 2) return;
@@ -135,7 +135,7 @@ fn broker_list_dicts(vm: *lua.Lua) i32 {
 
 fn broker_list_dicts_callback(lang_tag: [*:0]const u8, provider_name: [*:0]const u8,
                               provider_desc: [*:0]const u8, provider_file: [*:0]const u8,
-                              user_data: ?*anyopaque) callconv(.C) void
+                              user_data: ?*anyopaque) callconv(.c) void
 {
   const vm: *lua.Lua = @ptrCast(user_data.?);
   if(vm.getTop() > 2) return;
@@ -147,15 +147,18 @@ fn broker_list_dicts_callback(lang_tag: [*:0]const u8, provider_name: [*:0]const
   vm.protectedCall(.{ .args = 4, .results = 0 }) catch {};
 }
 
-const broker_methods = [_]lua.FnReg{
-  .{ .name = "init", .func = lua.wrap(broker_init) },
-  .{ .name = "__gc", .func = lua.wrap(broker_gc) },
-  .{ .name = "request_dict", .func = lua.wrap(broker_request_dict) },
-  .{ .name = "request_pwl_dict", .func = lua.wrap(broker_request_pwl_dict) },
-  .{ .name = "dict_exists", .func = lua.wrap(broker_dict_exists) },
-  .{ .name = "set_ordering", .func = lua.wrap(broker_set_ordering) },
-  .{ .name = "describe", .func = lua.wrap(broker_describe) },
-  .{ .name = "list_dicts", .func = lua.wrap(broker_list_dicts) },
+const broker_methods = blk: {
+  @setEvalBranchQuota(100_000);
+  break :blk [_]lua.FnReg{
+    .{ .name = "init", .func = lua.wrap(broker_init) },
+    .{ .name = "__gc", .func = lua.wrap(broker_gc) },
+    .{ .name = "request_dict", .func = lua.wrap(broker_request_dict) },
+    .{ .name = "request_pwl_dict", .func = lua.wrap(broker_request_pwl_dict) },
+    .{ .name = "dict_exists", .func = lua.wrap(broker_dict_exists) },
+    .{ .name = "set_ordering", .func = lua.wrap(broker_set_ordering) },
+    .{ .name = "describe", .func = lua.wrap(broker_describe) },
+    .{ .name = "list_dicts", .func = lua.wrap(broker_list_dicts) },
+  };
 };
 
 fn dict_gc(vm: *lua.Lua) i32 {
@@ -257,7 +260,7 @@ fn dict_describe(vm: *lua.Lua) i32 {
 
 fn dict_describe_callback(lang_tag: [*:0]const u8, provider_name: [*:0]const u8,
                           provider_desc: [*:0]const u8, provider_file: [*:0]const u8,
-                          user_data: ?*anyopaque) callconv(.C) void
+                          user_data: ?*anyopaque) callconv(.c) void
 {
   const vm: *lua.Lua = @ptrCast(user_data.?);
   _ = vm.pushString(std.mem.span(lang_tag));
@@ -266,19 +269,22 @@ fn dict_describe_callback(lang_tag: [*:0]const u8, provider_name: [*:0]const u8,
   _ = vm.pushString(std.mem.span(provider_file));
 }
 
-const dict_methods = [_]lua.FnReg{
-  .{ .name = "__gc", .func = lua.wrap(dict_gc) },
-  .{ .name = "check", .func = lua.wrap(dict_check) },
-  .{ .name = "suggest", .func = lua.wrap(dict_suggest) },
-  .{ .name = "add", .func = lua.wrap(dict_add) },
-  .{ .name = "add_to_session", .func = lua.wrap(dict_add_to_session) },
-  .{ .name = "remove", .func = lua.wrap(dict_remove) },
-  .{ .name = "remove_from_session", .func = lua.wrap(dict_remove_from_session) },
-  .{ .name = "is_added", .func = lua.wrap(dict_is_added) },
-  .{ .name = "is_removed", .func = lua.wrap(dict_is_removed) },
-  .{ .name = "get_extra_word_characters", .func = lua.wrap(dict_get_extra_word_characters) },
-  .{ .name = "is_word_character", .func = lua.wrap(dict_is_word_character) },
-  .{ .name = "describe", .func = lua.wrap(dict_describe) },
+const dict_methods = blk: {
+  @setEvalBranchQuota(100_000);
+  break :blk [_]lua.FnReg{
+    .{ .name = "__gc", .func = lua.wrap(dict_gc) },
+    .{ .name = "check", .func = lua.wrap(dict_check) },
+    .{ .name = "suggest", .func = lua.wrap(dict_suggest) },
+    .{ .name = "add", .func = lua.wrap(dict_add) },
+    .{ .name = "add_to_session", .func = lua.wrap(dict_add_to_session) },
+    .{ .name = "remove", .func = lua.wrap(dict_remove) },
+    .{ .name = "remove_from_session", .func = lua.wrap(dict_remove_from_session) },
+    .{ .name = "is_added", .func = lua.wrap(dict_is_added) },
+    .{ .name = "is_removed", .func = lua.wrap(dict_is_removed) },
+    .{ .name = "get_extra_word_characters", .func = lua.wrap(dict_get_extra_word_characters) },
+    .{ .name = "is_word_character", .func = lua.wrap(dict_is_word_character) },
+    .{ .name = "describe", .func = lua.wrap(dict_describe) },
+  };
 };
 
 export fn luaopen_core_enchant(vm: *lua.Lua) i32 {

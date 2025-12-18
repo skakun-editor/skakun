@@ -25,6 +25,7 @@ const c = @cImport({
 });
 const assert = std.debug.assert;
 const posix = std.posix;
+const File = std.fs.File;
 
 var debug_allocator = std.heap.DebugAllocator(.{}).init;
 const allocator = if(builtin.mode == .Debug) debug_allocator.allocator() else std.heap.smp_allocator;
@@ -35,21 +36,25 @@ var should_forward_stderr_on_exit = true;
 
 var vm: *lua.Lua = undefined;
 
-fn cleanup_stderr(_: i32) callconv(.C) void {
+fn cleanup_stderr(_: i32) callconv(.c) void {
   if(should_forward_stderr_on_exit) {
-    _ = posix.sendfile(original_stderr, posix.STDERR_FILENO, 0, 0, &.{}, &.{}, 0) catch unreachable;
+    var writer_buf: [4096]u8 = undefined;
+    var writer = (File{ .handle = original_stderr }).writer(&writer_buf);
+    var reader = (File{ .handle = posix.STDERR_FILENO }).reader(&.{});
+    _ = writer.interface.sendFileAll(&reader, .unlimited) catch unreachable;
+    writer.interface.flush() catch unreachable;
   }
   posix.dup2(original_stderr, posix.STDERR_FILENO) catch unreachable;
   posix.close(original_stderr);
 }
 
-fn cleanup_stderr_with_leak_check() callconv(.C) void {
+fn cleanup_stderr_with_leak_check() callconv(.c) void {
   allocator.free(stderr_path);
   _ = debug_allocator.deinit();
   cleanup_stderr(0);
 }
 
-fn cleanup_vm() callconv(.C) void {
+fn cleanup_vm() callconv(.c) void {
   // The initial comments in doString's improve stack trace legibility.
   vm.loadString(
     \\-- main.zig cleanup_vm()
@@ -99,7 +104,7 @@ pub fn main() !void {
     errdefer allocator.free(stderr_path);
 
     try std.fs.cwd().makePath(std.fs.path.dirname(stderr_path) orelse ".");
-    const new_stderr = try posix.open(stderr_path, .{ .ACCMODE = .RDWR, .APPEND = true, .CREAT = true, .TRUNC = true }, std.fs.File.default_mode);
+    const new_stderr = try posix.open(stderr_path, .{ .ACCMODE = .RDWR, .APPEND = true, .CREAT = true, .TRUNC = true }, File.default_mode);
     defer posix.close(new_stderr);
     original_stderr = try posix.dup(posix.STDERR_FILENO);
     errdefer posix.close(original_stderr);
@@ -110,14 +115,16 @@ pub fn main() !void {
     // our new setup works, and restoring the original if not. We wouldn't be
     // able to do that later and any attempts to write anything to stderr
     // (including errors caused by writing to stderr) would silently fail.
-    try std.io.getStdErr().writer().print("Skakun {s} on {s} {s}, {s}", .{build.version, @tagName(builtin.cpu.arch), @tagName(builtin.os.tag), c.ctime(&c.time(null))});
+    var stderr_buf: [128]u8 = undefined;
+    var stderr = File.stderr().writer(&stderr_buf);
+    try stderr.interface.print("Skakun {s} on {s} {s}, {s}", .{build.version, @tagName(builtin.cpu.arch), @tagName(builtin.os.tag), c.ctime(&c.time(null))});
+    try stderr.interface.flush();
 
     if(c.atexit(cleanup_stderr_with_leak_check) != 0) return error.OutOfMemory;
     // If any errors were to occur in this code block past the registration of
     // this SIGABRT handler, then both the errdefer's and the handler would be
     // executed, which is obviously undesirable.
     posix.sigaction(posix.SIG.ABRT, &.{ .handler = .{ .handler = cleanup_stderr }, .mask = posix.sigemptyset(), .flags = 0 }, null);
-    // posix.sigaction(posix.SIG.ABRT, &.{ .handler = .{ .handler = cleanup_stderr }, .mask = posix.empty_sigset, .flags = 0 }, null);
   }
 
   vm = try .init(allocator);
@@ -144,7 +151,7 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     if(args.len >= 2 and std.mem.eql(u8, args[1], "--version")) {
-      try std.io.getStdOut().writeAll(std.fmt.comptimePrint(
+      try File.stdout().writeAll(std.fmt.comptimePrint(
         \\Skakun {s}
         \\Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
         \\This program comes with ABSOLUTELY NO WARRANTY.

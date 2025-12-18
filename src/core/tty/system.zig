@@ -34,14 +34,16 @@ const posix = std.posix;
 
 pub var is_open = false;
 pub var file: if(builtin.os.tag == .windows) struct { in: File, out: File } else File = undefined;
+var reader_buf: [4096]u8 = undefined;
 pub var reader: File.Reader = undefined;
 // The buffer should be big enough to hold the entire screen in order to prevent
 // flickering during redraws but we shouldn't care about redraws which are too
 // slow anyways. The difference the buffer size makes is especially noticeable
 // in xterm.
-pub var writer: std.io.BufferedWriter(65536, File.Writer) = undefined;
+var writer_buf: [65536]u8 = undefined;
+pub var writer: File.Writer = undefined;
 
-fn open(vm: *lua.Lua) i32  {
+fn open(vm: *lua.Lua) i32 {
   if(is_open) vm.raiseErrorStr("tty is already open", .{});
   // We get hold of the controlling terminal directly, because stdin and stdout
   // might have been redirected to pipes.
@@ -98,16 +100,16 @@ fn open(vm: *lua.Lua) i32  {
     };
     // Yeah… uhh… it turns out CON can be opened with read or write access but not both…
     // Source: https://stackoverflow.com/questions/47534039/windows-console-handle-for-con-device#comment82036446_47534039
-    reader = file.in.reader();
-    writer = .{ .unbuffered_writer = file.out.writer() };
+    reader = file.in.reader(&reader_buf);
+    writer = file.out.writer(&writer_buf);
   } else {
     // Why "/dev/tty" exactly? Well, the answer is simple and well-documented
     // (unlike that other operating system):
     // - https://unix.stackexchange.com/q/60641
     // - https://tldp.org/HOWTO/Text-Terminal-HOWTO-7.html
     file = std.fs.cwd().openFile("/dev/tty", .{ .mode = .read_write }) catch |err| vm.raiseErrorStr("failed to open /dev/tty: %s", .{@errorName(err).ptr});
-    reader = file.reader();
-    writer = .{ .unbuffered_writer = file.writer() };
+    reader = file.reader(&reader_buf);
+    writer = file.writer(&writer_buf);
   }
   is_open = true;
   return 0;
@@ -116,7 +118,7 @@ fn open(vm: *lua.Lua) i32  {
 fn close(_: *lua.Lua) i32 {
   if(!is_open) return 0;
   is_open = false;
-  writer.flush() catch {};
+  writer.interface.flush() catch {};
   if(builtin.os.tag == .windows) {
     file.in.close();
     file.out.close();
@@ -128,7 +130,7 @@ fn close(_: *lua.Lua) i32 {
 
 var original_termios: ?posix.termios = null;
 
-fn enable_raw_mode(vm: *lua.Lua) i32  {
+fn enable_raw_mode(vm: *lua.Lua) i32 {
   if(!is_open) vm.raiseErrorStr("tty is closed", .{});
   if(original_termios != null) return 0;
 
@@ -146,7 +148,7 @@ fn enable_raw_mode(vm: *lua.Lua) i32  {
   return 0;
 }
 
-fn disable_raw_mode(vm: *lua.Lua) i32  {
+fn disable_raw_mode(vm: *lua.Lua) i32 {
   if(!is_open) vm.raiseErrorStr("tty is closed", .{});
   if(original_termios) |x| {
     posix.tcsetattr(file.handle, .FLUSH, x) catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
@@ -155,27 +157,25 @@ fn disable_raw_mode(vm: *lua.Lua) i32  {
   return 0;
 }
 
-fn write(vm: *lua.Lua) i32  {
+fn write(vm: *lua.Lua) i32 {
   if(!is_open) vm.raiseErrorStr("tty is closed", .{});
   for(1 .. @intCast(vm.getTop() + 1)) |arg_idx| {
-    writer.writer().writeAll(vm.checkString(@intCast(arg_idx))) catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
+    writer.interface.writeAll(vm.checkString(@intCast(arg_idx))) catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
   }
   return 0;
 }
 
-fn flush(vm: *lua.Lua) i32  {
+fn flush(vm: *lua.Lua) i32 {
   if(!is_open) vm.raiseErrorStr("tty is closed", .{});
-  writer.flush() catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
+  writer.interface.flush() catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
   return 0;
 }
 
-fn read(vm: *lua.Lua) i32  {
+fn read(vm: *lua.Lua) i32 {
   if(!is_open) vm.raiseErrorStr("tty is closed", .{});
-  const allocator = vm.allocator();
+  var result: lua.Buffer = undefined;
   // A tight limit of 4KiB so as not to punish quadratic algorithms downstream.
-  const data = reader.readAllAlloc(allocator, 4096) catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
-  defer allocator.free(data);
-  _ = vm.pushString(data);
+  result.pushResultSize(reader.interface.readSliceShort(result.initSize(vm, 4096)) catch vm.raiseErrorStr("%s", .{@errorName(reader.err.?).ptr}));
   return 1;
 }
 
@@ -222,7 +222,7 @@ fn width_of(vm: *lua.Lua) i32 {
   return 1;
 }
 
-fn getflag(vm: *lua.Lua) i32  {
+fn getflag(vm: *lua.Lua) i32 {
   const capname = vm.checkString(1);
   const term = if(vm.optString(2)) |x| x.ptr else null;
 
@@ -241,7 +241,7 @@ fn getflag(vm: *lua.Lua) i32  {
   return 1;
 }
 
-fn getnum(vm: *lua.Lua) i32  {
+fn getnum(vm: *lua.Lua) i32 {
   const capname = vm.checkString(1);
   const term = if(vm.optString(2)) |x| x.ptr else null;
 
@@ -280,22 +280,25 @@ fn getstr(vm: *lua.Lua) i32 {
   return 1;
 }
 
-const funcs = [_]lua.FnReg{
-  .{ .name = "open", .func = lua.wrap(open) },
-  .{ .name = "close", .func = lua.wrap(close) },
-  .{ .name = "enable_raw_mode", .func = lua.wrap(enable_raw_mode) },
-  .{ .name = "disable_raw_mode", .func = lua.wrap(disable_raw_mode) },
+const funcs = blk: {
+  @setEvalBranchQuota(100_000);
+  break :blk [_]lua.FnReg{
+    .{ .name = "open", .func = lua.wrap(open) },
+    .{ .name = "close", .func = lua.wrap(close) },
+    .{ .name = "enable_raw_mode", .func = lua.wrap(enable_raw_mode) },
+    .{ .name = "disable_raw_mode", .func = lua.wrap(disable_raw_mode) },
 
-  .{ .name = "write", .func = lua.wrap(write) },
-  .{ .name = "flush", .func = lua.wrap(flush) },
-  .{ .name = "read", .func = lua.wrap(read) },
-  .{ .name = "wait_for_read", .func = lua.wrap(wait_for_read) },
-  .{ .name = "get_size", .func = lua.wrap(get_size) },
-  .{ .name = "width_of", .func = lua.wrap(width_of) },
+    .{ .name = "write", .func = lua.wrap(write) },
+    .{ .name = "flush", .func = lua.wrap(flush) },
+    .{ .name = "read", .func = lua.wrap(read) },
+    .{ .name = "wait_for_read", .func = lua.wrap(wait_for_read) },
+    .{ .name = "get_size", .func = lua.wrap(get_size) },
+    .{ .name = "width_of", .func = lua.wrap(width_of) },
 
-  .{ .name = "getflag", .func = lua.wrap(getflag) },
-  .{ .name = "getnum", .func = lua.wrap(getnum) },
-  .{ .name = "getstr", .func = lua.wrap(getstr) },
+    .{ .name = "getflag", .func = lua.wrap(getflag) },
+    .{ .name = "getnum", .func = lua.wrap(getnum) },
+    .{ .name = "getstr", .func = lua.wrap(getstr) },
+  };
 };
 
 pub fn luaopen(vm: *lua.Lua) i32 {

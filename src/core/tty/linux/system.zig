@@ -152,15 +152,18 @@ fn get_active_vc(vm: *lua.Lua) i32 {
   return 1;
 }
 
-const funcs = [_]lua.FnReg{
-  .{ .name = "enable_raw_kbd", .func = lua.wrap(enable_raw_kbd) },
-  .{ .name = "disable_raw_kbd", .func = lua.wrap(disable_raw_kbd) },
-  .{ .name = "get_keymap", .func = lua.wrap(get_keymap) },
-  .{ .name = "get_accentmap", .func = lua.wrap(get_accentmap) },
-  .{ .name = "set_kbd_locks", .func = lua.wrap(set_kbd_locks) },
-  .{ .name = "get_kbd_locks", .func = lua.wrap(get_kbd_locks) },
-  .{ .name = "set_active_vc", .func = lua.wrap(set_active_vc) },
-  .{ .name = "get_active_vc", .func = lua.wrap(get_active_vc) },
+const funcs = blk: {
+  @setEvalBranchQuota(100_000);
+  break :blk [_]lua.FnReg{
+    .{ .name = "enable_raw_kbd", .func = lua.wrap(enable_raw_kbd) },
+    .{ .name = "disable_raw_kbd", .func = lua.wrap(disable_raw_kbd) },
+    .{ .name = "get_keymap", .func = lua.wrap(get_keymap) },
+    .{ .name = "get_accentmap", .func = lua.wrap(get_accentmap) },
+    .{ .name = "set_kbd_locks", .func = lua.wrap(set_kbd_locks) },
+    .{ .name = "get_kbd_locks", .func = lua.wrap(get_kbd_locks) },
+    .{ .name = "set_active_vc", .func = lua.wrap(set_active_vc) },
+    .{ .name = "get_active_vc", .func = lua.wrap(get_active_vc) },
+  };
 };
 
 pub fn luaopen(vm: *lua.Lua) i32 {

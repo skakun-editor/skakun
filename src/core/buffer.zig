@@ -63,6 +63,7 @@ fn raise_err(vm: *lua.Lua, err: buffer.Error, err_msg: ?[]u8) noreturn {
     error.NoSpaceLeft => "no space left on device",
     error.NotDir => "not a directory",
     error.NotOpenForReading => unreachable, // from posix.read in Editor.open
+    error.NonResizable => "file not resizable",
     error.NotSupported => "operation not supported",
     error.OperationAborted => unreachable, // Never actually generated.
     error.OutOfBounds => "index out of bounds",
@@ -208,24 +209,27 @@ fn validate_mmaps(vm: *lua.Lua) i32 {
   return 1;
 }
 
-const buffer_methods = [_]lua.FnReg{
-  .{ .name = "new", .func = lua.wrap(new) },
-  .{ .name = "open", .func = lua.wrap(open) },
-  .{ .name = "__gc", .func = lua.wrap(__gc) },
-  .{ .name = "save", .func = lua.wrap(save) },
+const buffer_methods = blk: {
+  @setEvalBranchQuota(100_000);
+  break :blk [_]lua.FnReg{
+    .{ .name = "new", .func = lua.wrap(new) },
+    .{ .name = "open", .func = lua.wrap(open) },
+    .{ .name = "__gc", .func = lua.wrap(__gc) },
+    .{ .name = "save", .func = lua.wrap(save) },
 
-  .{ .name = "__len", .func = lua.wrap(__len) },
-  .{ .name = "read", .func = lua.wrap(read) },
-  .{ .name = "iter", .func = lua.wrap(iter) },
+    .{ .name = "__len", .func = lua.wrap(__len) },
+    .{ .name = "read", .func = lua.wrap(read) },
+    .{ .name = "iter", .func = lua.wrap(iter) },
 
-  .{ .name = "insert", .func = lua.wrap(insert) },
-  .{ .name = "delete", .func = lua.wrap(delete) },
-  .{ .name = "copy", .func = lua.wrap(copy) },
+    .{ .name = "insert", .func = lua.wrap(insert) },
+    .{ .name = "delete", .func = lua.wrap(delete) },
+    .{ .name = "copy", .func = lua.wrap(copy) },
 
-  .{ .name = "load", .func = lua.wrap(load) },
-  .{ .name = "has_healthy_mmap", .func = lua.wrap(has_healthy_mmap) },
-  .{ .name = "has_corrupt_mmap", .func = lua.wrap(has_corrupt_mmap) },
-  .{ .name = "validate_mmaps", .func = lua.wrap(validate_mmaps) },
+    .{ .name = "load", .func = lua.wrap(load) },
+    .{ .name = "has_healthy_mmap", .func = lua.wrap(has_healthy_mmap) },
+    .{ .name = "has_corrupt_mmap", .func = lua.wrap(has_corrupt_mmap) },
+    .{ .name = "validate_mmaps", .func = lua.wrap(validate_mmaps) },
+  };
 };
 
 fn __gc_iter(vm: *lua.Lua) i32 {
@@ -274,7 +278,7 @@ fn next_codepoint(vm: *lua.Lua) i32 {
 fn next_grapheme(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(Buffer.Iterator, 1, "core.buffer.iter");
 
-  var dest = std.ArrayList(u8).init(vm.allocator());
+  var dest = std.array_list.Managed(u8).init(vm.allocator());
   defer dest.deinit();
   const maybe_grapheme = self.next_grapheme(&dest) catch |err| {
     dest.deinit();
@@ -295,18 +299,21 @@ fn last_advance(vm: *lua.Lua) i32 {
   return 1;
 }
 
-const iter_methods = [_]lua.FnReg{
-  .{ .name = "__gc", .func = lua.wrap(__gc_iter) },
-  .{ .name = "next", .func = lua.wrap(next) },
-  .{ .name = "prev", .func = lua.wrap(prev) },
-  .{ .name = "skip", .func = lua.wrap(skip) },
-  .{ .name = "rewind", .func = lua.wrap(rewind) },
-  .{ .name = "next_codepoint", .func = lua.wrap(next_codepoint) },
-  .{ .name = "next_grapheme", .func = lua.wrap(next_grapheme) },
-  .{ .name = "last_advance", .func = lua.wrap(last_advance) },
+const iter_methods = blk: {
+  @setEvalBranchQuota(100_000);
+  break :blk [_]lua.FnReg{
+    .{ .name = "__gc", .func = lua.wrap(__gc_iter) },
+    .{ .name = "next", .func = lua.wrap(next) },
+    .{ .name = "prev", .func = lua.wrap(prev) },
+    .{ .name = "skip", .func = lua.wrap(skip) },
+    .{ .name = "rewind", .func = lua.wrap(rewind) },
+    .{ .name = "next_codepoint", .func = lua.wrap(next_codepoint) },
+    .{ .name = "next_grapheme", .func = lua.wrap(next_grapheme) },
+    .{ .name = "last_advance", .func = lua.wrap(last_advance) },
+  };
 };
 
-fn cleanup() callconv(.C) void {
+fn cleanup() callconv(.c) void {
   editor.deinit();
 }
 

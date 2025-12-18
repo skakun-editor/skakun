@@ -10,17 +10,21 @@
       .url = "https://github.com/openresty/lua-cjson/archive/refs/tags/2.1.0.14.tar.gz",
       .hash = "N-V-__8AADU5BQDb7c4jODJ3K0ddKULwMVI2cACwtGg-nBFd",
     },
+    .lua_gobject = .{
+      .url = "https://github.com/vtrlx/LuaGObject/archive/refs/tags/0.10.1.tar.gz",
+      .hash = "N-V-__8AAA-yDgAaz5x-paxiCW8JrnG6GjK1qD3RLSCm6NJd",
+    },
     .lua_treesitter = .{
       .url = "https://github.com/digitcrusher/lua-tree-sitter/archive/4bd8a6d.tar.gz",
       .hash = "N-V-__8AAIh5AQBYk4OfntC0ch3FeMddPwToWmLxJUdY7Xvz",
     },
     .treesitter = .{
-      .url = "https://github.com/tree-sitter/tree-sitter/archive/1850762.tar.gz",
-      .hash = "tree_sitter-0.25.1-Tw2sRxO5CwBou3LAQAS0rtq7ovdnXcwy9gXTCIDKAfJG",
+      .url = "https://github.com/tree-sitter/tree-sitter/archive/86b9f81.tar.gz",
+      .hash = "tree_sitter-0.26.0-Tw2sRzq7CwBVlTWR2JunMFYY9B_Vk8Jccv9zp5RLxrBg",
     },
     .zlua = .{
-      .url = "https://github.com/skakun-editor/multithreaded-ziglua/archive/5f4d914.tar.gz",
-      .hash = "zlua-0.1.0-hGRpC24tBQBhLXKL0Om43m8OKtYqabb5z2MLDtkqLGCs",
+      .url = "https://github.com/skakun-editor/multithreaded-ziglua/archive/ad0a3a0.tar.gz",
+      .hash = "zlua-0.1.0-hGRpC-U4BQDwGHHkfJG4KPGCygI62xBG-4e5XEEN2cYl",
     },
   },
   .paths = .{

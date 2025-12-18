@@ -41,6 +41,15 @@ end
 
 function Widget:handle_event() end
 
+function Widget:idle() end
+
+function Widget:set_bounds(x, y, width, height)
+  self.x = x
+  self.y = y
+  self.width = width
+  self.height = height
+end
+
 function Widget:drawn_bounds()
   local drawn = self.drawn
   return drawn.x, drawn.y, drawn.x + drawn.width - 1, drawn.y + drawn.height - 1

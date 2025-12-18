@@ -47,7 +47,7 @@ end
 
 function Parser:run(buffer, callback)
   local worker = self.worker
-  assert(not worker or worker:join(0))
+  assert(not worker or worker.thread:join(0))
 
   local job = self.stopped_jobs[buffer]
   local grammar = self:grammar_for(buffer)

@@ -15,11 +15,13 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local here = ...
+local DocBuffer         = require('core.doc.buffer')
 local Parser            = require('core.doc.parser')
 local SpellChecker      = require('core.doc.spell_checker')
 local SyntaxHighlighter = require('core.doc.syntax_highlighter')
 local stderr            = require('core.stderr')
 local tty               = require('core.tty')
+local ui                = require('core.ui')
 local Widget            = require('core.ui.widget')
 local utils             = require('core.utils')
 
@@ -44,28 +46,13 @@ local DocView = setmetatable({
     selection = 'bright_black',
     misspelling = 'red',
   },
-  ctrl_pics = (function()
-    local result = {
-      ['\127'] = '␡',
-      ['\r\n'] = '␍␊',
-    }
-    for i = 0x00, 0x1f do
-      result[string.char(i)] = utf8.char(0x2400 + i)
-    end
-    for i = 0x80, 0x9f do
-      result[utf8.char(i)] = '�'
-    end
-    result['\u{85}'] = '␤'
-    return result
-  end)(),
 }, Widget)
 DocView.__index = DocView
 
 function DocView.new(doc)
   local self = setmetatable(Widget.new(), DocView)
-  self.faces     = setmetatable({}, { __index = DocView.faces     })
-  self.colors    = setmetatable({}, { __index = DocView.colors    })
-  self.ctrl_pics = setmetatable({}, { __index = DocView.ctrl_pics })
+  self.faces = setmetatable({}, { __index = DocView.faces })
+  self.colors = setmetatable({}, { __index = DocView.colors })
 
   self.doc = doc
   self.view_start = { line = 1, col = 1, buffer = doc.buffer }
@@ -119,6 +106,12 @@ function DocView:start_background_tasks()
     local _, tree, grammar = self.parser:cached_parse_of(buffer)
     on_parsed(tree, grammar)
   end
+end
+
+function DocView:stop_background_tasks()
+  self.parser:stop()
+  self.syntax_highlighter:stop()
+  self.spell_checker:stop()
 end
 
 function DocView:layout_lines()
@@ -192,8 +185,8 @@ function DocView:next_grapheme(iter, loc)
   elseif result == '\t' then
     local tab_width = self.doc.buffer.navigator.tab_width
     result = (' '):rep(tab_width - (loc.col - 1) % tab_width)
-  elseif self.ctrl_pics[result] then
-    result = self.ctrl_pics[result]
+  elseif ui.ctrl_pics[result] then
+    result = ui.ctrl_pics[result]
     is_invalid = true
   end
 
@@ -426,6 +419,12 @@ function DocView:handle_event(event)
   end
 end
 
+function DocView:idle()
+  if not DocBuffer.validate_mmaps() then
+    self:queue_draw()
+  end
+end
+
 function DocView:sync_view_start()
   local start = self.view_start
   if start.buffer ~= self.doc.buffer then
@@ -439,9 +438,9 @@ function DocView:adjust_view_to_contain_idx(idx)
   self:sync_view_start()
   local loc = self.doc.buffer.navigator:locate_byte(idx)
   local start = self.view_start
-  local margin = 2 * self.view_containment_margin + 1 <= self.height and self.view_containment_margin or 0
+  local margin = math.min(self.view_containment_margin, (self.width - 1) // 2)
   start.line = math.max(math.min(start.line, loc.line - margin), loc.line + margin - self.height + 1, 1)
-  local margin = 2 * self.view_containment_margin + 1 <= self.width and self.view_containment_margin or 0
+  local margin = math.min(self.view_containment_margin, (self.height - 1) // 2)
   start.col = math.max(math.min(start.col, loc.col - margin), loc.col + margin - self.width + 1, 1)
 end
 
