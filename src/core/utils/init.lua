@@ -1,5 +1,5 @@
 -- Skakun - A robust and hackable hex and text editor
--- Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+-- Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -173,11 +173,10 @@ function utils.once(func, ...)
     -- Depends heavily on the inner workings of the interpreter's
     -- multithreading and will most likely break, if they change.
     if not results then
-      lock:acquire()
+      local lock <close> = lock:acquire()
       if not results then
         results = table.pack(xpcall(func, debug.traceback, table.unpack(args, 1, args.n)))
       end
-      lock:release()
     end
     if results[1] then
       return table.unpack(results, 2, results.n)
@@ -217,7 +216,7 @@ function utils.binary_search_last(table, is_near_enough)
   end
 end
 
-function utils.is_point_in_rect(x, y, left, top, right, bottom)
+function utils.point_is_in_rect(x, y, left, top, right, bottom)
   return left <= x and x <= right and top <= y and y <= bottom
 end
 

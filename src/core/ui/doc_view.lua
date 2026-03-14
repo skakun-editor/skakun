@@ -1,5 +1,5 @@
 -- Skakun - A robust and hackable hex and text editor
--- Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+-- Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -89,13 +89,13 @@ function DocView:start_background_tasks()
     if tree and grammar and self.syntax_highlighter:does_need_run(buffer, tree, grammar) then
       self.syntax_highlighter:stop()
       self.syntax_highlighter:run(buffer, tree, grammar, function()
-        self:queue_draw()
+        self:request_draw()
       end)
     end
     if self.spell_checker:does_need_run(buffer, tree, grammar) then
       self.spell_checker:stop()
       self.spell_checker:run(buffer, tree, grammar, function()
-        self:queue_draw()
+        self:request_draw()
       end)
     end
   end
@@ -221,7 +221,7 @@ function DocView:next_grapheme(iter, loc)
 end
 
 function DocView:buffer_idx_drawn_at(x, y)
-  if not utils.is_point_in_rect(x, y, self:drawn_bounds()) then
+  if not utils.point_is_in_rect(x, y, self:drawn_bounds()) then
     return nil
   end
   local drawn = self.drawn
@@ -244,7 +244,7 @@ function DocView:handle_event(event)
     self.view_start.col = self.view_start.col + self.view_scroll_speed
 
   elseif event.type == 'press' and event.button == 'mouse_left' then
-    if utils.is_point_in_rect(event.x, event.y, self:drawn_bounds()) then
+    if utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) then
       local cursor = self:buffer_idx_drawn_at(event.x, event.y)
       if not event.shift then
         if event.alt then
@@ -258,11 +258,11 @@ function DocView:handle_event(event)
       sel.len = cursor - sel.idx
       sel.col_hint = nil
       self:merge_selections_overlapping_with(self.latest_selection_node)
-      self.is_mouse_dragging_selection = true
+      self.mouse_is_dragging_selection = true
     end
 
   elseif event.type == 'move' then
-    if self.is_mouse_dragging_selection and utils.is_point_in_rect(event.x, event.y, self:drawn_bounds()) then
+    if self.mouse_is_dragging_selection and utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) then
       self:sync_selections()
       local sel = self.latest_selection_node.value
       sel.len = self:buffer_idx_drawn_at(event.x, event.y) - sel.idx
@@ -271,7 +271,7 @@ function DocView:handle_event(event)
     end
 
   elseif event.type == 'release' and event.button == 'mouse_left' then
-    self.is_mouse_dragging_selection = false
+    self.mouse_is_dragging_selection = false
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'left' then
     self:sync_selections()
@@ -421,7 +421,7 @@ end
 
 function DocView:idle()
   if not DocBuffer.validate_mmaps() then
-    self:queue_draw()
+    self:request_draw()
   end
 end
 
@@ -653,7 +653,7 @@ function DocView:clear_selections()
   self.selections:clear()
   self.selections_set_buffer_log_idx = #self.doc.set_buffer_log
   self.latest_selection_node = nil
-  self.is_mouse_dragging_selection = false
+  self.mouse_is_dragging_selection = false
 end
 
 function DocView:merge_selections_if_overlapping(a, b, preferred_len_sign)

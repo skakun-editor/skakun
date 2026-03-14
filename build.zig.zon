@@ -11,8 +11,8 @@
       .hash = "N-V-__8AADU5BQDb7c4jODJ3K0ddKULwMVI2cACwtGg-nBFd",
     },
     .lua_gobject = .{
-      .url = "https://github.com/vtrlx/LuaGObject/archive/refs/tags/0.10.1.tar.gz",
-      .hash = "N-V-__8AAA-yDgAaz5x-paxiCW8JrnG6GjK1qD3RLSCm6NJd",
+      .url = "https://github.com/skakun-editor/multithreaded-LuaGObject/archive/7f4140b.tar.gz",
+      .hash = "N-V-__8AAG9YDgBb0hydX3Tti5_MnnX-MnLRlHNFqfFn83Ur",
     },
     .lua_treesitter = .{
       .url = "https://github.com/digitcrusher/lua-tree-sitter/archive/4bd8a6d.tar.gz",
@@ -23,8 +23,8 @@
       .hash = "tree_sitter-0.26.0-Tw2sRzq7CwBVlTWR2JunMFYY9B_Vk8Jccv9zp5RLxrBg",
     },
     .zlua = .{
-      .url = "https://github.com/skakun-editor/multithreaded-ziglua/archive/ad0a3a0.tar.gz",
-      .hash = "zlua-0.1.0-hGRpC-U4BQDwGHHkfJG4KPGCygI62xBG-4e5XEEN2cYl",
+      .url = "https://github.com/skakun-editor/multithreaded-ziglua/archive/1906ad9.tar.gz",
+      .hash = "zlua-0.1.0-hGRpC-U4BQBq0GgOHFpPEdEKOr25NFBqYUWK4rZN_mpV",
     },
   },
   .paths = .{

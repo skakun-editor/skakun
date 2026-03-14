@@ -1,5 +1,5 @@
 -- Skakun - A robust and hackable hex and text editor
--- Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+-- Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -18,6 +18,11 @@ local here = ...
 local stderr = require('core.stderr')
 local tty    = require('core.tty')
 local utils  = require('core.utils')
+
+-- IDEA: styling as code, which would solve the issues of:
+--       1. how to dim the interface when a popup is overlaid on top of it
+--       2. generic style attributes removing the need to set them in every single widget's prototype
+--       3. assigning different styles to a widget depending on whether it's in a popup or somewhere else
 
 local ui = {
   is_running = true,
@@ -53,7 +58,7 @@ function ui.run(root)
 
     root:set_bounds(1, 1, width, height)
 
-    if root.is_queued_for_draw then
+    if root.has_requested_draw then
       should_redraw = true
     end
 

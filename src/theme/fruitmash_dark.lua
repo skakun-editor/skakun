@@ -1,5 +1,5 @@
 -- Skakun - A robust and hackable hex and text editor
--- Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+-- Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -14,10 +14,10 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-local tty               = require('core.tty')
-local DocView           = require('core.ui.doc_view')
-local utils             = require('core.utils')
-local fruitmash_light   = require('theme.fruitmash_light')
+local tty             = require('core.tty')
+local DocView         = require('core.ui.doc_view')
+local utils           = require('core.utils')
+local fruitmash_light = require('theme.fruitmash_light')
 local rgb = tty.Rgb.from_hex
 local hsv = tty.Rgb.from_hsv
 

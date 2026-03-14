@@ -7,6 +7,7 @@ local treesitter        = require('core.treesitter')
 local tty               = require('core.tty')
 local ui                = require('core.ui')
 local DocView           = require('core.ui.doc_view')
+local nerd_fonts        = require('core.ui.nerd_fonts')
 local Widget            = require('core.ui.widget')
 local utils             = require('core.utils')
 local dracula           = require('theme.dracula')
@@ -17,32 +18,34 @@ local github_light      = require('theme.github_light')
 local gruvbox_dark      = require('theme.gruvbox_dark')
 local gruvbox_light     = require('theme.gruvbox_light')
 
+-- TODO: update the rest of the themes to support the new ui eleements
 -- TODO: commands under F1
 -- TODO: logo
 -- HACK: update docs when you're finished lol
 -- TODO: autosave when idle
--- TODO: locks using the close feature
 
 core.should_forward_stderr_on_exit = false
 utils.lock_globals()
 table.insert(core.cleanups, tty.restore)
 tty.setup()
+nerd_fonts.version = '3.4.0'
+nerd_fonts.init()
 
-local names = {'red', 'orange', 'yellow', 'green', 'cyan', 'blue'}
-local width = 0
-for _, name in ipairs(names) do
-  width = math.max(width, #name)
-end
-for _, name in ipairs(names) do
-  stderr.info(
-    here,
-    ('%-' .. width .. 's'):format(name),
-    ' ',
-    ('dark (%.3f %.3f %6.2f)'):format(fruitmash_dark.true_color.colors[name]:oklch()),
-    ' ',
-    ('light (%.3f %.3f %6.2f)'):format(fruitmash_light.true_color.colors[name]:oklch())
-  )
-end
+-- local names = {'red', 'orange', 'yellow', 'green', 'cyan', 'blue'}
+-- local width = 0
+-- for _, name in ipairs(names) do
+--   width = math.max(width, #name)
+-- end
+-- for _, name in ipairs(names) do
+--   stderr.info(
+--     here,
+--     ('%-' .. width .. 's'):format(name),
+--     ' ',
+--     ('dark (%.3f %.3f %6.2f)'):format(fruitmash_dark.true_color.colors[name]:oklch()),
+--     ' ',
+--     ('light (%.3f %.3f %6.2f)'):format(fruitmash_light.true_color.colors[name]:oklch())
+--   )
+-- end
 
 SyntaxHighlighter.is_debug = true
 
@@ -57,11 +60,13 @@ end, {
 
 local root = Widget.new()
 
-local doc_view = DocView.new(core.args[2] and Doc.open(core.args[2]) or Doc.new())
-table.insert(core.cleanups, function() doc_view:stop_background_tasks() end)
-local text_field = require('core.ui.text_field').new()
-doc_view.parent, text_field.parent = root, root
-local theme = fruitmash_dark
+-- local doc_view = DocView.new(core.args[2] and Doc.open(core.args[2]) or Doc.new())
+-- table.insert(core.cleanups, function() doc_view:stop_background_tasks() end)
+local file_chooser = require('core.ui.file_chooser').new()
+file_chooser.path_field.text = core.args[2]
+-- doc_view.parent = root
+file_chooser.parent = root
+local theme = dracula
 theme.apply()
 
 local mouse_x, mouse_y = 1, 1
@@ -70,13 +75,13 @@ function root:draw()
   Widget.draw(self)
 
   tty.set_cursor(false)
-  tty.set_window_background(doc_view.faces.normal.background)
+  -- tty.set_window_background(doc_view.faces.normal.background)
 
-  doc_view:set_bounds(self:drawn_bounds())
-  doc_view:draw()
+  -- doc_view:set_bounds(self:drawn_bounds())
+  -- doc_view:draw()
 
-  text_field:set_bounds(self:drawn_bounds())
-  text_field:draw()
+  file_chooser:set_bounds(1 + (self.width - 50) // 2, 1 + (self.height - 20) // 2, 50, 20)
+  file_chooser:draw()
 
   --[[
   local set = {}
@@ -147,19 +152,19 @@ function root:handle_event(event)
         tty.cap.foreground = event.shift and 'ansi' or 'true_color'
         theme.apply()
       end
-      self:queue_draw()
+      self:request_draw()
       return
     end
   elseif event.type == 'move' then
     mouse_x = event.x
     mouse_y = event.y
   end
-  text_field:handle_event(event)
+  file_chooser:handle_event(event)
 end
 
 function root:idle()
-  doc_view:idle()
-  text_field:idle()
+  -- doc_view:idle()
+  file_chooser:idle()
 end
 
 ui.run(root)

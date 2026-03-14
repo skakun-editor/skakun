@@ -1,5 +1,5 @@
 -- Skakun - A robust and hackable hex and text editor
--- Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+-- Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -17,6 +17,8 @@
 local SyntaxHighlighter = require('core.doc.syntax_highlighter')
 local tty               = require('core.tty')
 local DocView           = require('core.ui.doc_view')
+local FileChooser       = require('core.ui.file_chooser')
+local TextField         = require('core.ui.text_field')
 local utils             = require('core.utils')
 local rgb = tty.Rgb.from_hex
 
@@ -33,7 +35,16 @@ function dracula.apply()
     DocView.colors, 'cursor', theme.colors.cursor,
     DocView.colors, 'cursor_foreground', theme.colors.cursor_foreground,
     DocView.colors, 'selection', theme.colors.selection,
-    DocView.colors, 'misspelling', theme.colors.red
+    DocView.colors, 'misspelling', theme.colors.red,
+    FileChooser.faces, 'completion', theme.faces.normal,
+    FileChooser.faces, 'completion_invalid', theme.faces.invalid,
+    FileChooser.faces, 'selected_completion', theme.faces.selection,
+    FileChooser.faces, 'selected_completion_invalid', theme.faces.selection,
+    TextField.faces, 'normal', theme.faces.normal,
+    TextField.faces, 'invalid', theme.faces.invalid,
+    TextField.faces, 'ellipsis', theme.faces.ellipsis,
+    TextField.colors, 'cursor', theme.colors.cursor,
+    TextField.colors, 'cursor_foreground', theme.colors.cursor_foreground
   )
 end
 
@@ -107,6 +118,8 @@ function dracula.from(colors)
     invalid                                   = { foreground = colors.foreground, background = colors.red },
     deprecated                                = { foreground = colors.foreground, background = colors.purple },
     error                                     = { foreground = colors.red,        background = colors.background },
+    selection                                 = { foreground = colors.foreground, background = colors.selection },
+    ellipsis                                  = { foreground = colors.comment,    background = colors.background },
 
     diff_text                                 = { foreground = colors.comment,    background = colors.background },
     diff_header                               = { foreground = colors.comment,    background = colors.background },

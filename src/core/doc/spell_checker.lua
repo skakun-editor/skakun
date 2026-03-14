@@ -1,5 +1,5 @@
 -- Skakun - A robust and hackable hex and text editor
--- Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+-- Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -153,9 +153,9 @@ function SpellChecker:check(buffer, tree, grammar, dict, is_async)
   local word_end
   local function flush_word()
     if #word > 0 and word_end then
-      local is_word_correct = enchant_dict:check(word:sub(1, word_end - word_start + 1))
+      local word_is_correct = enchant_dict:check(word:sub(1, word_end - word_start + 1))
       for i = word_start, word_end do
-        is_correct[i] = is_word_correct
+        is_correct[i] = word_is_correct
       end
     end
     word = ''

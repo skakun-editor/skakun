@@ -1,5 +1,5 @@
 -- Skakun - A robust and hackable hex and text editor
--- Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+-- Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -40,7 +40,7 @@ stderr.log = stderr.color_log
 
 stderr.lock = thread.newlock()
 function stderr.print_indented(indent, ...)
-  stderr.lock:acquire()
+  local lock <close> = stderr.lock:acquire()
   io.stderr:write(indent)
   local args = table.pack(...)
   args[args.n] = tostring(args[args.n]):gsub('\n+$', '')
@@ -48,7 +48,6 @@ function stderr.print_indented(indent, ...)
     io.stderr:write((tostring(args[i]):gsub('\n', '\n' .. indent)))
   end
   io.stderr:write('\n')
-  stderr.lock:release()
 end
 
 function stderr.error(place, ...) stderr.log('error', place, ...) end

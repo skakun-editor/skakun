@@ -1,5 +1,5 @@
 -- Skakun - A robust and hackable hex and text editor
--- Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+-- Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@ function Widget.new()
     width = nil,
     height = nil,
     drawn = nil,
-    is_queued_for_draw = false,
+    has_requested_draw = false,
   }, Widget)
 end
 
@@ -36,7 +36,7 @@ function Widget:draw()
     width = self.width,
     height = self.height,
   }
-  self.is_queued_for_draw = false
+  self.has_requested_draw = false
 end
 
 function Widget:handle_event() end
@@ -55,10 +55,10 @@ function Widget:drawn_bounds()
   return drawn.x, drawn.y, drawn.x + drawn.width - 1, drawn.y + drawn.height - 1
 end
 
-function Widget:queue_draw()
-  self.is_queued_for_draw = true
+function Widget:request_draw()
+  self.has_requested_draw = true
   if self.parent then
-    self.parent:queue_draw()
+    self.parent:request_draw()
   end
 end
 

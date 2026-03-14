@@ -1,5 +1,5 @@
 -- Skakun - A robust and hackable hex and text editor
--- Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+-- Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -193,9 +193,8 @@ function treesitter.load_pkg(dir)
   end
 
   for root in utils.split(roots, '\0') do
-    local file = io.open(root .. '/tree-sitter.json', 'r')
+    local file <close> = io.open(root .. '/tree-sitter.json', 'r')
     local json = cjson.decode(file:read('a'))
-    file:close()
     if #json.grammars == 0 then
       stderr.warn(here, 'no grammars in ', root)
     end
@@ -222,10 +221,9 @@ function treesitter.load_pkg(dir)
         end
         local result = {}
         for _, path in ipairs(paths) do
-          local file, err = io.open(root .. '/' .. path, 'r')
+          local file <close>, err = io.open(root .. '/' .. path, 'r')
           if file then
             table.insert(result, file:read('a'))
-            file:close()
           else
             stderr.warn(here, err)
           end

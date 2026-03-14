@@ -1,5 +1,5 @@
 -- Skakun - A robust and hackable hex and text editor
--- Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+-- Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 --
 -- This program is free software: you can redistribute it and/or modify
 -- it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@ local utils    = require('core.utils')
 
 local TextField = setmetatable({
   history_commit_delay = 1,
-  view_containment_margin = 2,
+  view_containment_margin = 3,
   faces = {
     normal = {},
     invalid = { foreground = 'red' },
@@ -51,7 +51,7 @@ function TextField.new()
   self.cursor_after_edit = 1
 
   self.view_start = 1
-  self.is_mouse_dragging_cursor = false
+  self.mouse_is_dragging_cursor = false
 
   return self
 end
@@ -102,10 +102,7 @@ function TextField:draw()
       x = x + 1
       tty.set_face(self.faces.normal)
     end
-    while x < self.x + self.width do
-      tty.write(' ')
-      x = x + 1
-    end
+    tty.write((' '):rep(self.x + self.width - x))
   end
 
   if self.view_start > 1 then
@@ -113,14 +110,22 @@ function TextField:draw()
     tty.move_to(self.x, self.y)
     tty.write('…')
   end
+
+  if self.height > 1 then
+    tty.set_face(self.faces.normal)
+    for y = self.y + 1, self.y + self.height - 1 do
+      tty.move_to(self.x, y)
+      tty.write((' '):rep(self.width))
+    end
+  end
 end
 
 function TextField:handle_event(event)
   if event.type == 'press' and event.button == 'mouse_left' or event.type == 'move' then
     if event.type == 'press' then
-      self.is_mouse_dragging_cursor = true
+      self.mouse_is_dragging_cursor = true
     end
-    if self.is_mouse_dragging_cursor and utils.is_point_in_rect(event.x, event.y, self:drawn_bounds()) then
+    if self.mouse_is_dragging_cursor and utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) then
       -- We can't process these events as though the user were interacting with
       -- the state actually visible on their screen because, in contrast to
       -- DocView, we have no way to send cursor positions across time. So we
@@ -136,11 +141,11 @@ function TextField:handle_event(event)
         end
       end
       self:adjust_view_to_contain_idx(self.cursor)
-      self:queue_draw()
+      self:request_draw()
     end
 
   elseif event.type == 'release' and event.button == 'mouse_left' then
-    self.is_mouse_dragging_cursor = false
+    self.mouse_is_dragging_cursor = false
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'left' then
     local old_cursor = self.cursor
@@ -149,7 +154,7 @@ function TextField:handle_event(event)
       self.cursor = i
     end
     self:adjust_view_to_contain_idx(self.cursor)
-    self:queue_draw()
+    self:request_draw()
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'right' then
     local old_cursor = self.cursor
@@ -163,17 +168,17 @@ function TextField:handle_event(event)
       self.cursor = #self.text + 1
     end
     self:adjust_view_to_contain_idx(self.cursor)
-    self:queue_draw()
+    self:request_draw()
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'home' then
     self.cursor = 1
     self:adjust_view_to_contain_idx(self.cursor)
-    self:queue_draw()
+    self:request_draw()
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'end' then
     self.cursor = #self.text + 1
     self:adjust_view_to_contain_idx(self.cursor)
-    self:queue_draw()
+    self:request_draw()
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'z' and event.ctrl then
     if not self.history_idx then
@@ -187,7 +192,7 @@ function TextField:handle_event(event)
     self.text = self.history[self.history_idx]
     self.cursor = self.cursor_history[self.history_idx]
     self:adjust_view_to_contain_idx(self.cursor)
-    self:queue_draw()
+    self:request_draw()
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'y' and event.ctrl then
     if not self.history_idx then
@@ -201,7 +206,7 @@ function TextField:handle_event(event)
     self.text = self.history[self.history_idx]
     self.cursor = self.cursor_history[self.history_idx]
     self:adjust_view_to_contain_idx(self.cursor)
-    self:queue_draw()
+    self:request_draw()
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'backspace' then
     self:update_history_before_edit()
@@ -214,7 +219,7 @@ function TextField:handle_event(event)
     self.cursor = from
     self:update_history_after_edit()
     self:adjust_view_to_contain_idx(self.cursor)
-    self:queue_draw()
+    self:request_draw()
 
   elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'delete' then
     self:update_history_before_edit()
@@ -227,7 +232,7 @@ function TextField:handle_event(event)
     end
     self.text = self.text:sub(1, self.cursor - 1) .. self.text:sub(to)
     self:update_history_after_edit()
-    self:queue_draw()
+    self:request_draw()
 
   elseif event.text then
     self:update_history_before_edit()
@@ -235,7 +240,7 @@ function TextField:handle_event(event)
     self.cursor = self.cursor + #event.text
     self:update_history_after_edit()
     self:adjust_view_to_contain_idx(self.cursor)
-    self:queue_draw()
+    self:request_draw()
   end
 end
 

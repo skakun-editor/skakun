@@ -1,5 +1,5 @@
 // Skakun - A robust and hackable hex and text editor
-// Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+// Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -153,7 +153,7 @@ pub fn main() !void {
     if(args.len >= 2 and std.mem.eql(u8, args[1], "--version")) {
       try File.stdout().writeAll(std.fmt.comptimePrint(
         \\Skakun {s}
-        \\Copyright (C) 2024-2025 Karol "digitcrusher" Łacina
+        \\Copyright (C) 2024-2026 Karol "digitcrusher" Łacina
         \\This program comes with ABSOLUTELY NO WARRANTY.
         \\This is free software, and you are welcome to redistribute it
         \\under certain conditions; see the source for copying conditions.
