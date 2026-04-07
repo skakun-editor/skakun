@@ -19,6 +19,7 @@ local grapheme   = require('core.grapheme')
 local stderr     = require('core.stderr')
 local tty        = require('core.tty')
 local ui         = require('core.ui')
+local Action     = require('core.ui.action')
 local nerd_fonts = require('core.ui.nerd_fonts')
 local TextField  = require('core.ui.text_field')
 local Widget     = require('core.ui.widget')
@@ -30,6 +31,10 @@ local GLib       = require('LuaGObject').GLib
 -- IDEA: file logo icon colors, with automatic saturation adjustment using oklch
 
 local FileChooser = setmetatable({
+  name = 'File Chooser',
+
+  scroll_speed = 3,
+
   faces = { -- HACK: are you sure about these?
     completion = {},
     completion_invalid = { foreground = 'red' },
@@ -276,11 +281,116 @@ function FileChooser.new(path)
   local self = setmetatable(Widget.new(), FileChooser)
   self.faces = setmetatable({}, { __index = FileChooser.faces })
 
-  self.path_field = TextField.new()
-  self.path_field.text = path or ''
-  self.path_field.parent = self
+  self:add_actions(
+    Action.new_simple(
+      'select_prev',
+      'Select previous completion',
+      'Selects the completion directly above the current one, if one exists.',
+      'up',
+      function(action, event)
+        self:move_completion_selection_up(1)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'select_next',
+      'Select next completion',
+      'Selects the completion directly below the current one, if one exists.',
+      'down',
+      function(action, event)
+        self:move_completion_selection_down(1)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'select_prev_page',
+      'Select completion on previous page',
+      'Moves the completion selection up by one visible page or as far as it is possible.',
+      'page_up',
+      function(action, event)
+        self:move_completion_selection_up(self.height - 1)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'select_next_page',
+      'Select completion on next page',
+      'Moves the completion selection down by one visible page or as far as it is possible.',
+      'page_down',
+      function(action, event)
+        self:move_completion_selection_down(self.height - 1)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'select_prev_scroll',
+      'Scroll completion selection up',
+      'Moves the completion selection up by the distance appropriate for a mouse scroll.',
+      'scroll_up',
+      function(action, event)
+        self:move_completion_selection_up(self.scroll_speed)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'select_next_scroll',
+      'Scroll completion selection down',
+      'Moves the completion selection down by the distance appropriate for a mouse scroll.',
+      'scroll_down',
+      function(action, event)
+        self:move_completion_selection_down(self.scroll_speed)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'select_first',
+      'Selects the first completion',
+      nil,
+      'ctrl+home',
+      function(action, event)
+        self:set_selected_completion_node(self:first_completion())
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'select_last',
+      'Selects the last completion',
+      nil,
+      'ctrl+end',
+      function(action, event)
+        self:set_selected_completion_node(self:last_completion())
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'apply_completion',
+      'Apply selected completion',
+      'Completes the entered path with the selected completion.',
+      'tab',
+      function(action, event)
+        if self:apply_selected_completion() then
+          self:request_draw()
+        end
+      end
+    ),
+    Action.new_simple(
+      'goto_parent_dir',
+      'Go to parent directory',
+      "Replaces the entered path with its parent directory's path.",
+      'shift+tab',
+      function(action, event)
+        self:goto_parent_dir()
+        self:request_draw()
+      end
+    )
+  )
 
-  self._selected_completion = nil
+  self.path_field = TextField.new()
+  self.path_field.parent = self
+  self.path_field.name = self.name
+  self.path_field.text = path or ''
+
+  self._selected_completion_node = nil
   self.completions_dir = nil
   self.completions = SortedSet.new(function(a, b)
     local a_is_dir, b_is_dir = a:get_file_type() == 'DIRECTORY', b:get_file_type() == 'DIRECTORY'
@@ -299,7 +409,7 @@ end
 
 function FileChooser:draw()
   Widget.draw(self)
-  if self.width == 0 or self.height == 0 then return end
+  if self.width <= 0 or self.height <= 0 then return end
 
   self:refresh_completions()
 
@@ -307,7 +417,7 @@ function FileChooser:draw()
   self.path_field:draw()
 
   local visible_completions = {}
-  local center = self:selected_completion()
+  local center = self:selected_completion_node()
   if center then
     local node = self:prev_completion(center)
     while node and #visible_completions < (self.height - 2) // 2 do
@@ -328,7 +438,7 @@ function FileChooser:draw()
     tty.move_to(x, y)
 
     local normal_face, invalid_face = self.faces.completion, self.faces.completion_invalid
-    if file_info == self:selected_completion().value then
+    if file_info == self:selected_completion_node().value then
       normal_face = self.faces.selected_completion
       invalid_face = self.faces.selected_completion_invalid
     end
@@ -397,64 +507,26 @@ function FileChooser:icon_for_file(file_info)
   return nerd_fonts.icons[result] or ' '
 end
 
-function FileChooser:handle_event(event)
-  if (event.type == 'press' or event.type == 'repeat') and event.button == 'up' then
-    self:move_completion_selection_up(1)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'down' then
-    self:move_completion_selection_down(1)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'page_up' then
-    self:move_completion_selection_up(self.height - 1)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'page_down' then
-    self:move_completion_selection_down(self.height - 1)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'scroll_up' then
-    self:move_completion_selection_up(3)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'scroll_down' then
-    self:move_completion_selection_down(3)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'tab' then
-    if event.shift then
-      self:ascend_dir()
-      self:request_draw()
-    elseif self:apply_selected_completion() then
-      self:request_draw()
-    end
-
-  else
-    self.path_field:handle_event(event)
-  end
-end
-
 function FileChooser:move_completion_selection_up(rowc)
-  local node = self:selected_completion()
+  local node = self:selected_completion_node()
   while rowc > 0 and node do
     node = self:prev_completion(node)
     rowc = rowc - 1
   end
-  self:set_selected_completion(node or self:first_completion())
+  self:set_selected_completion_node(node or self:first_completion())
 end
 
 function FileChooser:move_completion_selection_down(rowc)
-  local node = self:selected_completion()
+  local node = self:selected_completion_node()
   while rowc > 0 and node do
     node = self:next_completion(node)
     rowc = rowc - 1
   end
-  self:set_selected_completion(node or self:last_completion())
+  self:set_selected_completion_node(node or self:last_completion())
 end
 
 function FileChooser:apply_selected_completion()
-  local node = self:selected_completion()
+  local node = self:selected_completion_node()
   if not node then
     return false
   end
@@ -469,7 +541,7 @@ function FileChooser:apply_selected_completion()
   return true
 end
 
-function FileChooser:ascend_dir() -- HACK: rename!
+function FileChooser:goto_parent_dir() -- HACK: rename!
   self.path_field:update_history_before_edit()
   local dir = GLib.path_get_dirname(self.path_field.text .. 'x')
   if GLib.path_get_basename(dir) == '..' or GLib.path_get_dirname(dir) == dir then
@@ -484,6 +556,12 @@ end
 
 function FileChooser:idle()
   self.path_field:idle()
+end
+
+function FileChooser:children()
+  return coroutine.wrap(function()
+    coroutine.yield(1, self.path_field)
+  end)
 end
 
 function FileChooser:refresh_completions()
@@ -520,15 +598,15 @@ function FileChooser:generate_completions()
   self:request_draw()
 end
 
-function FileChooser:selected_completion()
+function FileChooser:selected_completion_node()
   local lock <close> = self.completions_lock:acquire()
   local prefix = self:completions_prefix()
-  local node = self._selected_completion and self.completions:find(self._selected_completion.value)
+  local node = self._selected_completion_node and self.completions:find(self._selected_completion_node.value)
   return node and node.value:get_name():sub(1, #prefix) == prefix and node or self:first_completion()
 end
 
-function FileChooser:set_selected_completion(node)
-  self._selected_completion = node
+function FileChooser:set_selected_completion_node(node)
+  self._selected_completion_node = node
 end
 
 function FileChooser:first_completion()

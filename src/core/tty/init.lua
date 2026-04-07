@@ -32,6 +32,7 @@ local utils       = require('core.utils')
 
 -- BUG: fix arrow key repeats in Kitty
 -- BUG: fix some perf issues and bugs in xterm and st
+-- TODO: isn't the break key different from the pause key?
 
 local tty = setmetatable({
   ansi_colors = {

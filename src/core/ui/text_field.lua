@@ -19,10 +19,12 @@ local grapheme = require('core.grapheme')
 local stderr   = require('core.stderr')
 local tty      = require('core.tty')
 local ui       = require('core.ui')
+local Action   = require('core.ui.action')
 local Widget   = require('core.ui.widget')
 local utils    = require('core.utils')
 
 local TextField = setmetatable({
+  name = 'Text Field',
   history_commit_delay = 1,
   view_containment_margin = 3,
   faces = {
@@ -41,6 +43,254 @@ function TextField.new()
   local self = setmetatable(Widget.new(), TextField)
   self.faces = setmetatable({}, { __index = TextField.faces })
 
+  self:add_actions(
+    Action.new(
+      'goto_mouse',
+      'Move cursor to mouse pointer',
+      nil,
+      function(action)
+        return action.button_symbols.mouse_left
+      end,
+      function(action, event)
+        return (event.type == 'press' or event.type == 'release') and event.button == 'mouse_left' and
+               utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) or
+               event.type == 'move' and self.mouse_is_dragging_cursor
+      end,
+      function(action, event)
+        if event.type == 'release' then
+          self.mouse_is_dragging_cursor = false
+          return
+        end
+        self.mouse_is_dragging_cursor = true
+        -- We can't process these events as though the user were interacting with
+        -- the state actually visible on their screen because, in contrast to
+        -- DocView, we have no way to send cursor positions across time. So we
+        -- just give up completely and don't go through the hastle of trying to
+        -- achieve a partial result.
+        self.cursor = #self.text + 1
+        local x = self.drawn.x - self.view_start + 1
+        for i, grapheme in grapheme.characters(self.text) do
+          x = x + tty.width_of(utf8.len(grapheme) and grapheme or '�')
+          if event.x < x then
+            self.cursor = i
+            break
+          end
+        end
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_left',
+      'Move cursor left',
+      nil,
+      'left',
+      function(action, event)
+        local old_cursor = self.cursor
+        for i in grapheme.characters(self.text) do
+          if i >= old_cursor then break end
+          self.cursor = i
+        end
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_left_word',
+      'Move cursor left by a word',
+      nil,
+      'ctrl+left',
+      function(action, event)
+        local old_cursor = self.cursor
+        for i in grapheme.words(self.text) do
+          if i >= old_cursor then break end
+          self.cursor = i
+        end
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_right',
+      'Move cursor right',
+      nil,
+      'right',
+      function(action, event)
+        local old_cursor = self.cursor
+        for i in grapheme.characters(self.text) do
+          if i > self.cursor then
+            self.cursor = i
+            break
+          end
+        end
+        if self.cursor == old_cursor then
+          self.cursor = #self.text + 1
+        end
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_right_word',
+      'Move cursor right by a word',
+      nil,
+      'ctrl+right',
+      function(action, event)
+        local old_cursor = self.cursor
+        for i in grapheme.words(self.text) do
+          if i > self.cursor then
+            self.cursor = i
+            break
+          end
+        end
+        if self.cursor == old_cursor then
+          self.cursor = #self.text + 1
+        end
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'goto_start',
+      'Move cursor to the beginning',
+      nil,
+      'home',
+      function(action, event)
+        self.cursor = 1
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'goto_end',
+      'Move cursor to the end',
+      nil,
+      'end',
+      function(action, event)
+        self.cursor = #self.text + 1
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'undo',
+      'Undo previous edit',
+      nil,
+      'ctrl+z',
+      function(action, event)
+        self:undo()
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'redo',
+      'Redo next edit',
+      nil,
+      'ctrl+y',
+      function(action, event)
+        self:redo()
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'delete_left',
+      'Delete character before cursor',
+      nil,
+      'backspace',
+      function(action, event)
+        self:update_history_before_edit()
+        local from = 1
+        for i in grapheme.characters(self.text) do
+          if i >= self.cursor then break end
+          from = i
+        end
+        self.text = self.text:sub(1, from - 1) .. self.text:sub(self.cursor)
+        self.cursor = from
+        self:update_history_after_edit()
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'delete_word_left',
+      'Delete word before cursor',
+      nil,
+      'ctrl+backspace',
+      function(action, event)
+        self:update_history_before_edit()
+        local from = 1
+        for i in grapheme.words(self.text) do
+          if i >= self.cursor then break end
+          from = i
+        end
+        self.text = self.text:sub(1, from - 1) .. self.text:sub(self.cursor)
+        self.cursor = from
+        self:update_history_after_edit()
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'delete_right',
+      'Delete character after cursor',
+      nil,
+      'delete',
+      function(action, event)
+        self:update_history_before_edit()
+        local to = #self.text + 1
+        for i in grapheme.characters(self.text) do
+          if i > self.cursor then
+            to = i
+            break
+          end
+        end
+        self.text = self.text:sub(1, self.cursor - 1) .. self.text:sub(to)
+        self:update_history_after_edit()
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'delete_word_right',
+      'Delete word after cursor',
+      nil,
+      'ctrl+delete',
+      function(action, event)
+        self:update_history_before_edit()
+        local to = #self.text + 1
+        for i in grapheme.words(self.text) do
+          if i > self.cursor then
+            to = i
+            break
+          end
+        end
+        self.text = self.text:sub(1, self.cursor - 1) .. self.text:sub(to)
+        self:update_history_after_edit()
+        self:request_draw()
+      end
+    ),
+    Action.new(
+      'insert_left',
+      'Insert text before cursor',
+      nil,
+      function(action)
+        return 'Type or paste'
+      end,
+      function(action, event)
+        return event.text
+      end,
+      function(action, event)
+        self:update_history_before_edit()
+        self.text = self.text:sub(1, self.cursor - 1) .. event.text .. self.text:sub(self.cursor)
+        self.cursor = self.cursor + #event.text
+        self:update_history_after_edit()
+        self:adjust_view_to_contain_idx(self.cursor)
+        self:request_draw()
+      end
+    )
+  )
+
   self.text = ''
   self.cursor = 1
 
@@ -58,7 +308,7 @@ end
 
 function TextField:draw()
   Widget.draw(self)
-  if self.width == 0 or self.height == 0 then return end
+  if self.width <= 0 or self.height <= 0 then return end
 
   tty.move_to(self.x, self.y)
   local x = self.x - self.view_start + 1
@@ -120,128 +370,30 @@ function TextField:draw()
   end
 end
 
-function TextField:handle_event(event)
-  if event.type == 'press' and event.button == 'mouse_left' or event.type == 'move' then
-    if event.type == 'press' then
-      self.mouse_is_dragging_cursor = true
+function TextField:undo()
+  if not self.history_idx then
+    if self.history[#self.history] ~= self.text then
+      table.insert(self.history, self.text)
+      table.insert(self.cursor_history, self.cursor_after_edit)
     end
-    if self.mouse_is_dragging_cursor and utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) then
-      -- We can't process these events as though the user were interacting with
-      -- the state actually visible on their screen because, in contrast to
-      -- DocView, we have no way to send cursor positions across time. So we
-      -- just give up completely and don't go through the hastle of trying to
-      -- achieve a partial result.
-      self.cursor = #self.text + 1
-      local x = self.drawn.x - self.view_start + 1
-      for i, grapheme in grapheme.characters(self.text) do
-        x = x + tty.width_of(utf8.len(grapheme) and grapheme or '�')
-        if event.x < x then
-          self.cursor = i
-          break
-        end
-      end
-      self:adjust_view_to_contain_idx(self.cursor)
-      self:request_draw()
-    end
-
-  elseif event.type == 'release' and event.button == 'mouse_left' then
-    self.mouse_is_dragging_cursor = false
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'left' then
-    local old_cursor = self.cursor
-    for i in (event.ctrl and grapheme.words or grapheme.characters)(self.text) do
-      if i >= old_cursor then break end
-      self.cursor = i
-    end
-    self:adjust_view_to_contain_idx(self.cursor)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'right' then
-    local old_cursor = self.cursor
-    for i in (event.ctrl and grapheme.words or grapheme.characters)(self.text) do
-      if i > self.cursor then
-        self.cursor = i
-        break
-      end
-    end
-    if self.cursor == old_cursor then
-      self.cursor = #self.text + 1
-    end
-    self:adjust_view_to_contain_idx(self.cursor)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'home' then
-    self.cursor = 1
-    self:adjust_view_to_contain_idx(self.cursor)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'end' then
-    self.cursor = #self.text + 1
-    self:adjust_view_to_contain_idx(self.cursor)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'z' and event.ctrl then
-    if not self.history_idx then
-      if self.history[#self.history] ~= self.text then
-        table.insert(self.history, self.text)
-        table.insert(self.cursor_history, self.cursor_after_edit)
-      end
-      self.history_idx = #self.history
-    end
-    self.history_idx = math.max(self.history_idx - 1, 1)
-    self.text = self.history[self.history_idx]
-    self.cursor = self.cursor_history[self.history_idx]
-    self:adjust_view_to_contain_idx(self.cursor)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'y' and event.ctrl then
-    if not self.history_idx then
-      if self.history[#self.history] ~= self.text then
-        table.insert(self.history, self.text)
-        table.insert(self.cursor_history, self.cursor_after_edit)
-      end
-      self.history_idx = #self.history
-    end
-    self.history_idx = math.min(self.history_idx + 1, #self.history)
-    self.text = self.history[self.history_idx]
-    self.cursor = self.cursor_history[self.history_idx]
-    self:adjust_view_to_contain_idx(self.cursor)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'backspace' then
-    self:update_history_before_edit()
-    local from = 1
-    for i in (event.ctrl and grapheme.words or grapheme.characters)(self.text) do
-      if i >= self.cursor then break end
-      from = i
-    end
-    self.text = self.text:sub(1, from - 1) .. self.text:sub(self.cursor)
-    self.cursor = from
-    self:update_history_after_edit()
-    self:adjust_view_to_contain_idx(self.cursor)
-    self:request_draw()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'delete' then
-    self:update_history_before_edit()
-    local to = #self.text + 1
-    for i in (event.ctrl and grapheme.words or grapheme.characters)(self.text) do
-      if i > self.cursor then
-        to = i
-        break
-      end
-    end
-    self.text = self.text:sub(1, self.cursor - 1) .. self.text:sub(to)
-    self:update_history_after_edit()
-    self:request_draw()
-
-  elseif event.text then
-    self:update_history_before_edit()
-    self.text = self.text:sub(1, self.cursor - 1) .. event.text .. self.text:sub(self.cursor)
-    self.cursor = self.cursor + #event.text
-    self:update_history_after_edit()
-    self:adjust_view_to_contain_idx(self.cursor)
-    self:request_draw()
+    self.history_idx = #self.history
   end
+  self.history_idx = math.max(self.history_idx - 1, 1)
+  self.text = self.history[self.history_idx]
+  self.cursor = self.cursor_history[self.history_idx]
+end
+
+function TextField:redo()
+  if not self.history_idx then
+    if self.history[#self.history] ~= self.text then
+      table.insert(self.history, self.text)
+      table.insert(self.cursor_history, self.cursor_after_edit)
+    end
+    self.history_idx = #self.history
+  end
+  self.history_idx = math.min(self.history_idx + 1, #self.history)
+  self.text = self.history[self.history_idx]
+  self.cursor = self.cursor_history[self.history_idx]
 end
 
 function TextField:adjust_view_to_contain_idx(idx)

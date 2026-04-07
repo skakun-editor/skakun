@@ -22,16 +22,18 @@ local SyntaxHighlighter = require('core.doc.syntax_highlighter')
 local stderr            = require('core.stderr')
 local tty               = require('core.tty')
 local ui                = require('core.ui')
+local Action            = require('core.ui.action')
 local Widget            = require('core.ui.widget')
 local utils             = require('core.utils')
 
 -- HACK: bring back soft wrapping
--- TODO: some nicer way of binding key shortcuts
 -- TODO: line numbers
 -- TODO: proper undo and redo
 -- TODO: set native cursor and window title when widget focused
+-- IDEA: highlight suspicious unicode characters, such as variation selectors
 
 local DocView = setmetatable({
+  name = 'Document View',
   should_soft_wrap = false,
   view_scroll_speed = 3,
   view_containment_margin = 2,
@@ -53,6 +55,521 @@ function DocView.new(doc)
   local self = setmetatable(Widget.new(), DocView)
   self.faces = setmetatable({}, { __index = DocView.faces })
   self.colors = setmetatable({}, { __index = DocView.colors })
+
+  self:add_actions(
+    Action.new_simple(
+      'view_up',
+      'Scroll view up',
+      nil,
+      'scroll_up',
+      function(action, event)
+        self.view_start.line = math.max(self.view_start.line - self.view_scroll_speed, 1)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'view_down',
+      'Scroll view down',
+      nil,
+      'scroll_down',
+      function(action, event)
+        self.view_start.line = self.view_start.line + self.view_scroll_speed
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'view_left',
+      'Scroll view left',
+      nil,
+      'scroll_left',
+      function(action, event)
+        self.view_start.col = math.max(self.view_start.col - self.view_scroll_speed, 1)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'view_right',
+      'Scroll view right',
+      nil,
+      'scroll_right',
+      function(action, event)
+        self.view_start.col = self.view_start.col + self.view_scroll_speed
+        self:request_draw()
+      end
+    ),
+    Action.new(
+      'goto_mouse',
+      'Move cursors to mouse pointer',
+      nil,
+      function(action)
+        return action.button_symbols.mouse_left
+      end,
+      function(action, event)
+        return event.type == 'press' and event.button == 'mouse_left' and
+              not event.alt and not event.ctrl and not event.shift and
+              utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
+      end,
+      function(action, event)
+        local cursor = self:buffer_idx_drawn_at(event.x, event.y)
+        self:clear_selections()
+        self:add_selection(cursor, 0)
+        local sel = self.latest_selection_node.value
+        sel.len = cursor - sel.idx
+        sel.col_hint = nil
+        self:merge_selections_overlapping_with(self.latest_selection_node)
+        self.mouse_is_dragging_selection = true
+        self:request_draw()
+      end
+    ),
+    Action.new(
+      'select_mouse',
+      'Add selection at mouse pointer',
+      nil,
+      function(action)
+        return action.mod_symbols.alt .. action.button_symbols.mouse_left
+      end,
+      function(action, event)
+        return event.type == 'press' and event.button == 'mouse_left' and
+              event.alt and not event.ctrl and not event.shift and
+              utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
+      end,
+      function(action, event)
+        local cursor = self:buffer_idx_drawn_at(event.x, event.y)
+        self:sync_selections()
+        self:add_selection(cursor, 0)
+        local sel = self.latest_selection_node.value
+        sel.len = cursor - sel.idx
+        sel.col_hint = nil
+        self:merge_selections_overlapping_with(self.latest_selection_node)
+        self.mouse_is_dragging_selection = true
+        self:request_draw()
+      end
+    ),
+    Action.new(
+      'goto_mouse_select',
+      'Extend latest selection to mouse pointer',
+      nil,
+      function(action)
+        if self.mouse_is_dragging_selection then
+          return 'Hold ' .. action.button_symbols.mouse_left .. ' and drag'
+        else
+          return action.mod_symbols.shift .. action.button_symbols.mouse_left
+        end
+      end,
+      function(action, event)
+        return (event.type == 'press' and event.button == 'mouse_left' and
+                not event.alt and not event.ctrl and event.shift or
+                event.type == 'move' and self.mouse_is_dragging_selection) and
+              utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
+      end,
+      function(action, event)
+        local cursor = self:buffer_idx_drawn_at(event.x, event.y)
+        self:sync_selections()
+        local sel = self.latest_selection_node.value
+        sel.len = cursor - sel.idx
+        sel.col_hint = nil
+        self:merge_selections_overlapping_with(self.latest_selection_node)
+        self.mouse_is_dragging_selection = true
+        self:request_draw()
+      end
+    ),
+    Action.new(
+      'stop_drag',
+      'Stop dragging cursor',
+      nil,
+      function(action)
+        return 'Release ' .. action.button_symbols.mouse_left
+      end,
+      function(action, event)
+        return event.type == 'release' and event.button == 'mouse_left'
+      end,
+      function(action, event)
+        self.mouse_is_dragging_selection = false
+      end
+    ),
+    Action.new_simple(
+      'move_left',
+      'Move cursors left',
+      nil,
+      'left',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_left(true)
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_right',
+      'Move cursors right',
+      nil,
+      'right',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_right(true)
+        self:adjust_view_to_contain_selection(self.selections:last().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_up',
+      'Move cursors up',
+      nil,
+      'up',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_up(1, true)
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_down',
+      'Move cursors down',
+      nil,
+      'down',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_down(1, true)
+        self:adjust_view_to_contain_selection(self.selections:last().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_up_page',
+      'Move cursors up by a page',
+      nil,
+      'page_up',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_up(#self.drawn.lines, true)
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_down_page',
+      'Move cursors down by a page',
+      nil,
+      'page_down',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_down(#self.drawn.lines, true)
+        self:adjust_view_to_contain_selection(self.selections:last().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'goto_line_start',
+      'Move cursors to line start',
+      nil,
+      'home',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_to_line_start(true)
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'goto_line_end',
+      'Move cursors to line end',
+      nil,
+      'end',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_to_line_end(true)
+        self:adjust_view_to_contain_selection(self.selections:last().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'goto_buffer_start',
+      'Move cursors to buffer start',
+      nil,
+      'ctrl+home',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_to_buffer_start(true)
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'goto_buffer_end',
+      'Move cursors to buffer end',
+      nil,
+      'ctrl+end',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_to_buffer_end(true)
+        self:adjust_view_to_contain_selection(self.selections:last().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_left_select',
+      'Extend selections left',
+      nil,
+      'shift+left',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_left(false)
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_right_select',
+      'Extend selections right',
+      nil,
+      'shift+right',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_right(false)
+        self:adjust_view_to_contain_selection(self.selections:last().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_up_select',
+      'Extend selections up',
+      nil,
+      'shift+up',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_up(1, false)
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_down_select',
+      'Extend selections down',
+      nil,
+      'shift+down',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_down(1, false)
+        self:adjust_view_to_contain_selection(self.selections:last().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_up_page_select',
+      'Extend selections up by a page',
+      nil,
+      'shift+page_up',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_up(#self.drawn.lines, false)
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'move_down_page_select',
+      'Extend selections down by a page',
+      nil,
+      'shift+page_down',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_down(#self.drawn.lines, false)
+        self:adjust_view_to_contain_selection(self.selections:last().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'goto_line_start_select',
+      'Extend selections to line start',
+      nil,
+      'shift+home',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_to_line_start(false)
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'goto_line_end_select',
+      'Extend selections to line end',
+      nil,
+      'shift+end',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_to_line_end(false)
+        self:adjust_view_to_contain_selection(self.selections:last().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'goto_buffer_start_select',
+      'Extend selections to buffer start',
+      nil,
+      'ctrl+shift+home',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_to_buffer_start(false)
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'goto_buffer_end_select',
+      'Extend selections to buffer end',
+      nil,
+      'ctrl+shift+end',
+      function(action, event)
+        self:sync_selections()
+        self:move_cursors_to_buffer_end(false)
+        self:adjust_view_to_contain_selection(self.selections:last().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'select_all',
+      'Select whole buffer',
+      nil,
+      'ctrl+a',
+      function(action, event)
+        self:clear_selections()
+        self:add_selection(1, #self.doc.buffer)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'undo',
+      'Undo previous edit',
+      nil,
+      'ctrl+z',
+      function(action, event)
+        if self.doc.buffer.parent then
+          self.doc:set_buffer(self.doc.buffer.parent)
+        end
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'save',
+      'Save buffer to disk',
+      nil,
+      'ctrl+s',
+      function(action, event)
+        self.doc:save()
+      end
+    ),
+    Action.new_simple(
+      'delete_left',
+      'Delete character before each cursor',
+      nil,
+      'backspace',
+      function(action, event)
+        self:sync_selections()
+        local buffer = self.doc.buffer:thaw()
+        local nav = self.doc.buffer.navigator
+        local shift = 0
+        for _, sel in self.selections:elems() do
+          sel.idx = sel.idx + shift
+          if sel.len > 0 then
+            buffer:delete(sel.idx, sel.idx + sel.len - 1)
+            shift = shift - sel.len
+            sel.len = 0
+          elseif sel.len < 0 then
+            buffer:delete(sel.idx + sel.len + 1, sel.idx)
+            shift = shift + sel.len
+            sel.idx = sel.idx + sel.len + 1
+            sel.len = 0
+          elseif sel.idx > 1 then
+            local from = nav:locate_grapheme(nav:locate_byte(sel.idx).grapheme - 1).byte
+            buffer:delete(from, sel.idx - 1)
+            shift = shift - (sel.idx - from)
+            sel.idx = from
+          end
+          sel.col_hint = nil
+        end
+        self:merge_overlapping_selections()
+        self.doc:set_buffer(buffer)
+        self.selections_set_buffer_log_idx = #self.doc.set_buffer_log
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new_simple(
+      'delete_right',
+      'Delete character after each cursor',
+      nil,
+      'delete',
+      function(action, event)
+        self:sync_selections()
+        local buffer = self.doc.buffer:thaw()
+        local nav = self.doc.buffer.navigator
+        local shift = 0
+        for _, sel in self.selections:elems() do
+          sel.idx = sel.idx + shift
+          if sel.len > 0 then
+            buffer:delete(sel.idx, sel.idx + sel.len - 1)
+            shift = shift - sel.len
+            sel.len = 0
+          elseif sel.len < 0 then
+            buffer:delete(sel.idx + sel.len + 1, sel.idx)
+            shift = shift + sel.len
+            sel.idx = sel.idx + sel.len + 1
+            sel.len = 0
+          else
+            local to = nav:locate_grapheme(nav:locate_byte(sel.idx).grapheme + 1).byte
+            buffer:delete(sel.idx, to - 1)
+            shift = shift - (to - sel.idx)
+          end
+          sel.col_hint = nil
+        end
+        self:merge_overlapping_selections()
+        self.doc:set_buffer(buffer)
+        self.selections_set_buffer_log_idx = #self.doc.set_buffer_log
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    ),
+    Action.new(
+      'insert_left',
+      'Insert text before each cursor',
+      nil,
+      function(action)
+        return 'Type or paste'
+      end,
+      function(action, event)
+        return event.text
+      end,
+      function(action, event)
+        event.text = event.text:gsub('\r\n', '\n'):gsub('\r', '\n')
+        self:sync_selections()
+        local buffer = self.doc.buffer:thaw()
+        local shift = 0
+        for _, sel in self.selections:elems() do
+          sel.idx = sel.idx + shift
+          if sel.len > 0 then
+            buffer:delete(sel.idx, sel.idx + sel.len - 1)
+            shift = shift - sel.len
+            sel.len = 0
+          elseif sel.len < 0 then
+            buffer:delete(sel.idx + sel.len + 1, sel.idx)
+            shift = shift + sel.len
+            sel.idx = sel.idx + sel.len + 1
+            sel.len = 0
+          end
+          buffer:insert(sel.idx, event.text)
+          shift = shift + #event.text
+          sel.idx = sel.idx + #event.text
+          sel.col_hint = nil
+        end
+        self:merge_overlapping_selections()
+        self.doc:set_buffer(buffer)
+        self.selections_set_buffer_log_idx = #self.doc.set_buffer_log
+        self:adjust_view_to_contain_selection(self.selections:first().value)
+        self:request_draw()
+      end
+    )
+  )
 
   self.doc = doc
   self.view_start = { line = 1, col = 1, buffer = doc.buffer }
@@ -228,195 +745,6 @@ function DocView:buffer_idx_drawn_at(x, y)
   local line_start = drawn.lines[y - drawn.y + 1]
   local loc = drawn.buffer.navigator:locate_line_col(line_start.line, line_start.col + x - drawn.x)
   return self.doc.buffer:carry_idx_over(loc.byte, drawn.buffer)
-end
-
-function DocView:handle_event(event)
-  if (event.type == 'press' or event.type == 'repeat') and event.button == 'scroll_up' then
-    self.view_start.line = math.max(self.view_start.line - self.view_scroll_speed, 1)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'scroll_down' then
-    self.view_start.line = self.view_start.line + self.view_scroll_speed
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'scroll_left' then
-    self.view_start.col = math.max(self.view_start.col - self.view_scroll_speed, 1)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'scroll_right' then
-    self.view_start.col = self.view_start.col + self.view_scroll_speed
-
-  elseif event.type == 'press' and event.button == 'mouse_left' then
-    if utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) then
-      local cursor = self:buffer_idx_drawn_at(event.x, event.y)
-      if not event.shift then
-        if event.alt then
-          self:sync_selections()
-        else
-          self:clear_selections()
-        end
-        self:add_selection(cursor, 0)
-      end
-      local sel = self.latest_selection_node.value
-      sel.len = cursor - sel.idx
-      sel.col_hint = nil
-      self:merge_selections_overlapping_with(self.latest_selection_node)
-      self.mouse_is_dragging_selection = true
-    end
-
-  elseif event.type == 'move' then
-    if self.mouse_is_dragging_selection and utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) then
-      self:sync_selections()
-      local sel = self.latest_selection_node.value
-      sel.len = self:buffer_idx_drawn_at(event.x, event.y) - sel.idx
-      sel.col_hint = false
-      self:merge_selections_overlapping_with(self.latest_selection_node)
-    end
-
-  elseif event.type == 'release' and event.button == 'mouse_left' then
-    self.mouse_is_dragging_selection = false
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'left' then
-    self:sync_selections()
-    self:move_cursors_left(not event.shift)
-    self:adjust_view_to_contain_selection(self.selections:first().value)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'right' then
-    self:sync_selections()
-    self:move_cursors_right(not event.shift)
-    self:adjust_view_to_contain_selection(self.selections:last().value)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'home' then
-    self:sync_selections()
-    if event.ctrl then
-      self:move_cursors_to_buffer_start(not event.shift)
-    else
-      self:move_cursors_to_line_start(not event.shift)
-    end
-    self:adjust_view_to_contain_selection(self.selections:first().value)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'end' then
-    self:sync_selections()
-    if event.ctrl then
-      self:move_cursors_to_buffer_end(not event.shift)
-    else
-      self:move_cursors_to_line_end(not event.shift)
-    end
-    self:adjust_view_to_contain_selection(self.selections:last().value)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'up' then
-    self:sync_selections()
-    self:move_cursors_up(1, not event.shift)
-    self:adjust_view_to_contain_selection(self.selections:first().value)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'down' then
-    self:sync_selections()
-    self:move_cursors_down(1, not event.shift)
-    self:adjust_view_to_contain_selection(self.selections:last().value)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'page_up' then
-    self:sync_selections()
-    self:move_cursors_up(#self.drawn.lines, not event.shift)
-    self:adjust_view_to_contain_selection(self.selections:first().value)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'page_down' then
-    self:sync_selections()
-    self:move_cursors_down(#self.drawn.lines, not event.shift)
-    self:adjust_view_to_contain_selection(self.selections:last().value)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.ctrl and event.button == 'a' then
-    self:clear_selections()
-    self:add_selection(1, #self.doc.buffer)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.ctrl and event.button == 'z' then
-    if self.doc.buffer.parent then
-      self.doc:set_buffer(self.doc.buffer.parent)
-    end
-
-  elseif event.type == 'press' and event.ctrl and event.button == 's' then
-    self.doc:save()
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'backspace' then
-    self:sync_selections()
-    local buffer = self.doc.buffer:thaw()
-    local nav = self.doc.buffer.navigator
-    local shift = 0
-    for _, sel in self.selections:elems() do
-      sel.idx = sel.idx + shift
-      if sel.len > 0 then
-        buffer:delete(sel.idx, sel.idx + sel.len - 1)
-        shift = shift - sel.len
-        sel.len = 0
-      elseif sel.len < 0 then
-        buffer:delete(sel.idx + sel.len + 1, sel.idx)
-        shift = shift + sel.len
-        sel.idx = sel.idx + sel.len + 1
-        sel.len = 0
-      elseif sel.idx > 1 then
-        local from = nav:locate_grapheme(nav:locate_byte(sel.idx).grapheme - 1).byte
-        buffer:delete(from, sel.idx - 1)
-        shift = shift - (sel.idx - from)
-        sel.idx = from
-      end
-      sel.col_hint = nil
-    end
-    self:merge_overlapping_selections()
-    self.doc:set_buffer(buffer)
-    self.selections_set_buffer_log_idx = #self.doc.set_buffer_log
-    self:adjust_view_to_contain_selection(self.selections:first().value)
-
-  elseif (event.type == 'press' or event.type == 'repeat') and event.button == 'delete' then
-    self:sync_selections()
-    local buffer = self.doc.buffer:thaw()
-    local nav = self.doc.buffer.navigator
-    local shift = 0
-    for _, sel in self.selections:elems() do
-      sel.idx = sel.idx + shift
-      if sel.len > 0 then
-        buffer:delete(sel.idx, sel.idx + sel.len - 1)
-        shift = shift - sel.len
-        sel.len = 0
-      elseif sel.len < 0 then
-        buffer:delete(sel.idx + sel.len + 1, sel.idx)
-        shift = shift + sel.len
-        sel.idx = sel.idx + sel.len + 1
-        sel.len = 0
-      else
-        local to = nav:locate_grapheme(nav:locate_byte(sel.idx).grapheme + 1).byte
-        buffer:delete(sel.idx, to - 1)
-        shift = shift - (to - sel.idx)
-      end
-      sel.col_hint = nil
-    end
-    self:merge_overlapping_selections()
-    self.doc:set_buffer(buffer)
-    self.selections_set_buffer_log_idx = #self.doc.set_buffer_log
-    self:adjust_view_to_contain_selection(self.selections:first().value)
-
-  elseif event.text then
-    event.text = event.text:gsub('\r\n', '\n'):gsub('\r', '\n')
-    self:sync_selections()
-    local buffer = self.doc.buffer:thaw()
-    local shift = 0
-    for _, sel in self.selections:elems() do
-      sel.idx = sel.idx + shift
-      if sel.len > 0 then
-        buffer:delete(sel.idx, sel.idx + sel.len - 1)
-        shift = shift - sel.len
-        sel.len = 0
-      elseif sel.len < 0 then
-        buffer:delete(sel.idx + sel.len + 1, sel.idx)
-        shift = shift + sel.len
-        sel.idx = sel.idx + sel.len + 1
-        sel.len = 0
-      end
-      buffer:insert(sel.idx, event.text)
-      shift = shift + #event.text
-      sel.idx = sel.idx + #event.text
-      sel.col_hint = nil
-    end
-    self:merge_overlapping_selections()
-    self.doc:set_buffer(buffer)
-    self.selections_set_buffer_log_idx = #self.doc.set_buffer_log
-    self:adjust_view_to_contain_selection(self.selections:first().value)
-  end
 end
 
 function DocView:idle()

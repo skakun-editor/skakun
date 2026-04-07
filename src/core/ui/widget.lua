@@ -14,7 +14,9 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-local Widget = {}
+local Widget = {
+  name = 'Widget',
+}
 Widget.__index = Widget
 
 function Widget.new()
@@ -26,6 +28,7 @@ function Widget.new()
     height = nil,
     drawn = nil,
     has_requested_draw = false,
+    actions = {},
   }, Widget)
 end
 
@@ -39,9 +42,30 @@ function Widget:draw()
   self.has_requested_draw = false
 end
 
-function Widget:handle_event() end
+function Widget:handle_event(event)
+  for _, action in ipairs(self.actions) do
+    if action:is_activated_by_event(event) then
+      action:activate(event)
+      return true
+    end
+  end
+  for _, child in self:children() do
+    if child:handle_event(event) then
+      return true
+    end
+  end
+  return false
+end
 
 function Widget:idle() end
+
+function Widget:children()
+  return coroutine.wrap(function() end)
+end
+
+function Widget:natural_size()
+  return 0, 0
+end
 
 function Widget:set_bounds(x, y, width, height)
   self.x = x
@@ -60,6 +84,31 @@ function Widget:request_draw()
   if self.parent then
     self.parent:request_draw()
   end
+end
+
+function Widget:add_action(action)
+  assert(not action.widget)
+  action.widget = self
+  self.actions[action.id] = action
+  table.insert(self.actions, action)
+end
+
+function Widget:add_actions(...)
+  for i = 1, select('#', ...) do
+    self:add_action(select(i, ...))
+  end
+end
+
+function Widget:remove_action(action)
+  for i = 1, #self.actions do
+    if self.actions[i] == action then
+      table.remove(self.actions, i)
+      self.actions[action.id] = false
+      action.widget = nil
+      return
+    end
+  end
+  assert(false)
 end
 
 return Widget

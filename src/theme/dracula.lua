@@ -16,6 +16,7 @@
 
 local SyntaxHighlighter = require('core.doc.syntax_highlighter')
 local tty               = require('core.tty')
+local ActionPrompt      = require('core.ui.action_prompt')
 local DocView           = require('core.ui.doc_view')
 local FileChooser       = require('core.ui.file_chooser')
 local TextField         = require('core.ui.text_field')
@@ -29,6 +30,12 @@ local dracula = {
 function dracula.apply()
   local theme = tty.cap.foreground == 'true_color' and tty.cap.background == 'true_color' and dracula.true_color or dracula.ansi
   dracula.themer:apply(
+    ActionPrompt.faces, 'name', theme.faces.ui_text,
+    ActionPrompt.faces, 'name_invalid', theme.faces.ui_text_invalid,
+    ActionPrompt.faces, 'hint', theme.faces.ui_hint,
+    ActionPrompt.faces, 'hint_invalid', theme.faces.ui_hint_invalid,
+    ActionPrompt.faces, 'selection', theme.faces.ui_selection,
+    ActionPrompt.faces, 'selection_invalid', theme.faces.ui_selection_invalid,
     DocView.faces, 'normal', theme.faces.normal,
     DocView.faces, 'invalid', theme.faces.invalid,
     DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
@@ -36,13 +43,13 @@ function dracula.apply()
     DocView.colors, 'cursor_foreground', theme.colors.cursor_foreground,
     DocView.colors, 'selection', theme.colors.selection,
     DocView.colors, 'misspelling', theme.colors.red,
-    FileChooser.faces, 'completion', theme.faces.normal,
-    FileChooser.faces, 'completion_invalid', theme.faces.invalid,
-    FileChooser.faces, 'selected_completion', theme.faces.selection,
-    FileChooser.faces, 'selected_completion_invalid', theme.faces.selection,
-    TextField.faces, 'normal', theme.faces.normal,
-    TextField.faces, 'invalid', theme.faces.invalid,
-    TextField.faces, 'ellipsis', theme.faces.ellipsis,
+    FileChooser.faces, 'completion', theme.faces.ui_text,
+    FileChooser.faces, 'completion_invalid', theme.faces.ui_text_invalid,
+    FileChooser.faces, 'selected_completion', theme.faces.ui_selection,
+    FileChooser.faces, 'selected_completion_invalid', theme.faces.ui_selection_invalid,
+    TextField.faces, 'normal', theme.faces.ui_text,
+    TextField.faces, 'invalid', theme.faces.ui_text_invalid,
+    TextField.faces, 'ellipsis', theme.faces.ui_decoration,
     TextField.colors, 'cursor', theme.colors.cursor,
     TextField.colors, 'cursor_foreground', theme.colors.cursor_foreground
   )
@@ -79,20 +86,24 @@ end
 
 function dracula.regenerate()
   dracula.true_color = dracula.from({
-    background        = rgb'282A36',
-    foreground        = rgb'F8F8F2',
-    selection         = rgb'44475A',
-    comment           = rgb'6272A4',
-    red               = rgb'FF5555',
-    orange            = rgb'FFB86C',
-    yellow            = rgb'F1FA8C',
-    green             = rgb'50FA7B',
-    purple            = rgb'BD93F9',
-    cyan              = rgb'8BE9FD',
-    pink              = rgb'FF79C6',
+    background         = rgb'282A36',
+    foreground         = rgb'F8F8F2',
+    selection          = rgb'44475A',
+    comment            = rgb'6272A4',
+    red                = rgb'FF5555',
+    orange             = rgb'FFB86C',
+    yellow             = rgb'F1FA8C',
+    green              = rgb'50FA7B',
+    purple             = rgb'BD93F9',
+    cyan               = rgb'8BE9FD',
+    pink               = rgb'FF79C6',
 
-    cursor            = rgb'AEAFAD',
-    cursor_foreground = rgb'515052',
+    background_lighter = rgb'424450',
+    background_light   = rgb'343746',
+    background_dark    = rgb'21222C',
+    background_darker  = rgb'191A21',
+    cursor             = rgb'AEAFAD',
+    cursor_foreground  = rgb'515052',
   })
   dracula.ansi = dracula.from({
     background        = 'black',
@@ -114,12 +125,18 @@ end
 
 function dracula.from(colors)
   local faces = {
+    ui_text                                   = { foreground = colors.foreground,      background = colors.background_dark },
+    ui_text_invalid                           = { foreground = colors.background_dark, background = colors.red },
+    ui_hint                                   = { foreground = colors.comment,         background = colors.background_dark },
+    ui_hint_invalid                           = { foreground = colors.background_dark, background = colors.red },
+    ui_selection                              = { foreground = colors.foreground,      background = colors.selection },
+    ui_selection_invalid                      = { foreground = colors.selection,       background = colors.red },
+    ui_decoration                             = { foreground = colors.comment,         background = colors.background_dark },
+
     normal                                    = { foreground = colors.foreground, background = colors.background },
     invalid                                   = { foreground = colors.foreground, background = colors.red },
     deprecated                                = { foreground = colors.foreground, background = colors.purple },
     error                                     = { foreground = colors.red,        background = colors.background },
-    selection                                 = { foreground = colors.foreground, background = colors.selection },
-    ellipsis                                  = { foreground = colors.comment,    background = colors.background },
 
     diff_text                                 = { foreground = colors.comment,    background = colors.background },
     diff_header                               = { foreground = colors.comment,    background = colors.background },

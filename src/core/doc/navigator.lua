@@ -20,7 +20,7 @@ local tty    = require('core.tty')
 local utils  = require('core.utils')
 
 local Navigator = {
-  tab_width = 8,
+  tab_width = 8, -- HACK: should be copied in constructor
   global_cache_skip = 1e4,
   max_local_cache_size = 1e3,
   local_cache_prune_probability = 0.5,

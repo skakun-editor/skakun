@@ -6,6 +6,8 @@ local stderr            = require('core.stderr')
 local treesitter        = require('core.treesitter')
 local tty               = require('core.tty')
 local ui                = require('core.ui')
+local Action            = require('core.ui.action')
+local ActionPrompt      = require('core.ui.action_prompt')
 local DocView           = require('core.ui.doc_view')
 local nerd_fonts        = require('core.ui.nerd_fonts')
 local Widget            = require('core.ui.widget')
@@ -19,7 +21,6 @@ local gruvbox_dark      = require('theme.gruvbox_dark')
 local gruvbox_light     = require('theme.gruvbox_light')
 
 -- TODO: update the rest of the themes to support the new ui eleements
--- TODO: commands under F1
 -- TODO: logo
 -- HACK: update docs when you're finished lol
 -- TODO: autosave when idle
@@ -59,13 +60,14 @@ end, {
 })
 
 local root = Widget.new()
+root.name = 'Root'
 
--- local doc_view = DocView.new(core.args[2] and Doc.open(core.args[2]) or Doc.new())
--- table.insert(core.cleanups, function() doc_view:stop_background_tasks() end)
-local file_chooser = require('core.ui.file_chooser').new()
-file_chooser.path_field.text = core.args[2]
--- doc_view.parent = root
-file_chooser.parent = root
+local doc_view = DocView.new(core.args[2] and Doc.open(core.args[2]) or Doc.new())
+table.insert(core.cleanups, function() doc_view:stop_background_tasks() end)
+doc_view.parent = root
+
+local action_prompt = nil
+
 local theme = dracula
 theme.apply()
 
@@ -75,13 +77,26 @@ function root:draw()
   Widget.draw(self)
 
   tty.set_cursor(false)
-  -- tty.set_window_background(doc_view.faces.normal.background)
+  tty.set_window_background(doc_view.faces.normal.background)
 
-  -- doc_view:set_bounds(self:drawn_bounds())
-  -- doc_view:draw()
+  doc_view:set_bounds(self:drawn_bounds())
+  doc_view:draw()
 
-  file_chooser:set_bounds(1 + (self.width - 50) // 2, 1 + (self.height - 20) // 2, 50, 20)
-  file_chooser:draw()
+  if action_prompt then
+    local width, height = action_prompt:natural_size()
+    if width > self.width then
+      width = self.width
+    elseif width % 2 ~= self.width % 2 then
+      width = width + 1
+    end
+    if height > self.height then
+      height = self.height
+    elseif height % 2 ~= self.height % 2 then
+      height = height + 1
+    end
+    action_prompt:set_bounds(1 + (self.width - width) // 2, 1 + (self.height - height) // 2, width, height)
+    action_prompt:draw()
+  end
 
   --[[
   local set = {}
@@ -137,34 +152,85 @@ function root:draw()
   -- tty.write(highlight)
 end
 
-function root:handle_event(event)
-  if event.type == 'press' or event.type == 'repeat' then
-    if event.button == 'escape' then
+local themes = {dracula, fruitmash_dark, fruitmash_light, github_dark, github_light, gruvbox_dark, gruvbox_light}
+
+root:add_actions(
+  Action.new_simple(
+    'quit',
+    'Quit Skakun',
+    nil,
+    'ctrl+q',
+    function(action, event)
       ui.stop()
-      return
-    elseif tonumber(event.button:match('f(%d+)')) then
+    end
+  ),
+  Action.new(
+    'set_theme',
+    'Set the theme',
+    nil,
+    function(action)
+      return action.mod_symbols.ctrl .. '[F1-F' .. #themes .. ']'
+    end,
+    function(action, event)
+      local num = event.button and tonumber(event.button:match('f(%d+)'))
+      return event.type == 'press' and num and num <= #themes and not event.alt and event.ctrl and not event.shift
+    end,
+    function(action, event)
       if theme then
         theme.unapply()
         theme = nil
       end
-      theme = ({dracula, fruitmash_dark, fruitmash_light, github_dark, github_light, gruvbox_dark, gruvbox_light})[tonumber(event.button:match('f(%d+)'))]
+      theme = themes[tonumber(event.button:match('f(%d+)'))]
       if theme then
         tty.cap.foreground = event.shift and 'ansi' or 'true_color'
         theme.apply()
       end
-      self:request_draw()
-      return
+      root:request_draw()
     end
-  elseif event.type == 'move' then
+  ),
+  Action.new_simple(
+    'action_prompt',
+    'Toggle action prompt',
+    'Opens or closes a list of actions you can perform in the UI.',
+    'f1',
+    function(action, event)
+      if action_prompt then
+        action_prompt.parent = nil
+        action_prompt = nil
+      else
+        action_prompt = ActionPrompt.new()
+        action_prompt.parent = root
+        action_prompt:add_actions_of(root, true)
+      end
+      root:request_draw()
+    end
+  )
+)
+
+function root:handle_event(event)
+  if event.type == 'move' then
     mouse_x = event.x
     mouse_y = event.y
   end
-  file_chooser:handle_event(event)
+  return Widget.handle_event(self, event)
 end
 
 function root:idle()
-  -- doc_view:idle()
-  file_chooser:idle()
+  doc_view:idle()
+  if action_prompt then
+    action_prompt:idle()
+  end
+end
+
+function root:children()
+  return coroutine.wrap(function()
+    if action_prompt then
+      coroutine.yield(1, action_prompt)
+      coroutine.yield(2, doc_view)
+    else
+      coroutine.yield(1, doc_view)
+    end
+  end)
 end
 
 ui.run(root)
