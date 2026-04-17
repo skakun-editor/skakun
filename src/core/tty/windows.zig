@@ -82,7 +82,11 @@ const funcs = [_]lua.FnReg{
   .{ .name = "set_clipboard", .func = lua.wrap(set_clipboard) },
 };
 
-pub fn luaopen(vm: *lua.Lua) i32 {
+fn luaopen(vm: *lua.Lua) i32 {
   vm.newLib(&funcs);
   return 1;
+}
+
+comptime {
+  _ = lua.exportFn("core_tty_windows", luaopen);
 }

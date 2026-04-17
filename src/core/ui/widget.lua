@@ -87,7 +87,7 @@ function Widget:request_draw()
 end
 
 function Widget:add_action(action)
-  assert(not action.widget)
+  assert(not action.widget and not self.actions[action.id])
   action.widget = self
   self.actions[action.id] = action
   table.insert(self.actions, action)
@@ -103,7 +103,7 @@ function Widget:remove_action(action)
   for i = 1, #self.actions do
     if self.actions[i] == action then
       table.remove(self.actions, i)
-      self.actions[action.id] = false
+      self.actions[action.id] = nil
       action.widget = nil
       return
     end

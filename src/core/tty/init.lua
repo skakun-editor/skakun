@@ -30,9 +30,7 @@ if core.platform == 'windows' then
 end
 local utils       = require('core.utils')
 
--- BUG: fix arrow key repeats in Kitty
--- BUG: fix some perf issues and bugs in xterm and st
--- TODO: isn't the break key different from the pause key?
+-- BUG: flickering in linux console
 
 local tty = setmetatable({
   ansi_colors = {
@@ -460,10 +458,26 @@ function tty.read_events()
     tty.input_buf = ''
     if #events <= 0 then break end
     for _, event in ipairs(events) do
-      table.insert(result, event)
+      table.insert(result, tty.sanitize_event(event))
     end
   end
   return result
+end
+
+function tty.sanitize_event(event)
+  if event.type == 'press' or event.type == 'repeat' then
+    if event.text and (event.text:byte() or 0) < 32 then
+      event.text = nil
+    end
+    if not event.alt and not event.ctrl and not event.shift then
+      if event.button == 'enter' or event.button == 'kp_enter' then
+        event.text = '\n'
+      elseif event.button == 'tab' then
+        event.text = '\t'
+      end
+    end
+  end
+  return event
 end
 
 function tty.query(question, answer_regex)
@@ -694,8 +708,11 @@ function tty.load_functions()
         -- colors. We have to fetch the RGB value from the terminal.
         tty.set_underline_color(tty.ansi_color_palette[color])
       elseif color then
-        -- Same semicolon story as with foreground and background.
-        tty.write('\27[58;2;', color.red, ';', color.green, ';', color.blue, 'm')
+        -- We actually use proper colons instead of semicolons here because
+        -- otherwise terminals that don't support this sequence (st for example)
+        -- would interpret its parameters as individual commands (as they
+        -- should) and it would obviously mess them up.
+        tty.write('\27[58:2:', color.red, ':', color.green, ':', color.blue, 'm')
       else
         tty.write('\27[59m')
       end
@@ -827,12 +844,13 @@ function tty.load_functions()
         -- there's no other way.
         tty.set_window_background(tty.ansi_color_palette[color])
       elseif color then
-        -- I don't know why, but this is ridiculously slow on kitty and st.
         -- Fun fact: xterm-compatibles accept X11 color names here, which you
         -- can find in /etc/X11/rgb.txt.
         tty.write(('\27]11;#%02x%02x%02x\27\\'):format(color.red, color.green, color.blue))
       else
-        tty.write('\27]111;\27\\')
+        -- We set the background color to black and then reset it because st
+        -- does not understand the latter.
+        tty.write('\27]11;#000000\27\\', '\27]111;\27\\')
       end
       tty.state.window_background = color
     end

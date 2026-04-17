@@ -185,7 +185,11 @@ const funcs = blk: {
   };
 };
 
-export fn luaopen_core_grapheme(vm: *lua.Lua) i32 {
+fn luaopen(vm: *lua.Lua) i32 {
   vm.newLib(&funcs);
   return 1;
+}
+
+comptime {
+  _ = lua.exportFn("core_grapheme", luaopen);
 }

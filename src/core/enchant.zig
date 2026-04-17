@@ -287,7 +287,7 @@ const dict_methods = blk: {
   };
 };
 
-export fn luaopen_core_enchant(vm: *lua.Lua) i32 {
+fn luaopen(vm: *lua.Lua) i32 {
   vm.newLib(&funcs);
 
   vm.newMetatable("core.enchant.Broker") catch unreachable;
@@ -303,4 +303,8 @@ export fn luaopen_core_enchant(vm: *lua.Lua) i32 {
   vm.setField(-2, "Dict");
 
   return 1;
+}
+
+comptime {
+  _ = lua.exportFn("core_enchant", luaopen);
 }

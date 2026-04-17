@@ -22,7 +22,10 @@ const c = @cImport({
   @cInclude("sys/consio.h");
   @cInclude("sys/kbio.h");
 });
-const tty = @import("../system.zig");
+const system = @import("core.tty.system");
+const assert = std.debug.assert;
+
+var tty: *system.Interface = undefined;
 
 fn ioctl(request: anytype, arg: anytype) c_int {
   return std.c.ioctl(tty.file.handle, request, arg);
@@ -145,7 +148,13 @@ const funcs = [_]lua.FnReg{
   .{ .name = "get_active_vc", .func = lua.wrap(get_active_vc) },
 };
 
-pub fn luaopen(vm: *lua.Lua) i32 {
+fn luaopen(vm: *lua.Lua) i32 {
+  assert(vm.getGlobal("require") catch unreachable == .function);
+  _ = vm.pushString("core.tty.system");
+  vm.call(.{ .args = 1, .results = 1 });
+  assert(vm.getField(-1, "interface") == .light_userdata);
+  tty = vm.toUserdata(system.Interface, -1) catch unreachable;
+
   vm.newLib(&funcs);
 
   // The FreeBSD peculiarities were picked out with the help of misc/kbdscan.
@@ -338,4 +347,8 @@ pub fn luaopen(vm: *lua.Lua) i32 {
   }
 
   return 1;
+}
+
+comptime {
+  _ = lua.exportFn("core_tty_freebsd_system", luaopen);
 }

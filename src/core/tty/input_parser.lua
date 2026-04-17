@@ -25,7 +25,7 @@ local InputParser = {
     'take_functional_key_with_mods',
     'take_shift_tab',
     'take_paste',
-    'drop_kitty_functional_key',
+    'take_kitty_functional_key',
     'take_key',
     'take_codepoint',
   },
@@ -364,26 +364,22 @@ function InputParser:take_kitty_key(buf, offset)
 
   keycode, new_offset = buf:match('^\27%[(%d+)u()', offset)
 
-  if not keycode then keycode, codepoint, new_offset = buf:match('^\27%[(%d+);;(%d+)u()', offset) end
-  if not keycode then keycode, codepoint, new_offset = buf:match('^\27%[%d+::(%d+);;(%d+)u()', offset) end
-
-  if not keycode then codepoint = nil end
   if not keycode then keycode, mods, new_offset = buf:match('^\27%[(%d+);(%d+)u()', offset) end
   if not keycode then keycode, mods, new_offset = buf:match('^\27%[(%d+):%d+;(%d+)u()', offset) end
-  if not keycode then keycode, mods, new_offset = buf:match('^\27%[%d+::(%d+);(%d+)u()', offset) end
+  if not keycode then keycode, mods, new_offset = buf:match('^\27%[%d+:%d*:(%d+);(%d+)u()', offset) end
 
-  if not keycode then keycode, mods, codepoint, new_offset = buf:match('^\27%[(%d+);(%d+);(%d+)u()', offset) end
-  if not keycode then keycode, mods, codepoint, new_offset = buf:match('^\27%[(%d+):%d+;(%d+);(%d+)u()', offset) end
-  if not keycode then keycode, mods, codepoint, new_offset = buf:match('^\27%[%d+::(%d+);(%d+);(%d+)u()', offset) end
+  if not keycode then keycode, mods, codepoint, new_offset = buf:match('^\27%[(%d+);(%d*);(%d+)u()', offset) end
+  if not keycode then keycode, mods, codepoint, new_offset = buf:match('^\27%[(%d+):%d+;(%d*);(%d+)u()', offset) end
+  if not keycode then keycode, mods, codepoint, new_offset = buf:match('^\27%[%d+:%d*:(%d+);(%d*);(%d+)u()', offset) end
 
   if not keycode then codepoint = nil end
   if not keycode then keycode, mods, event, new_offset = buf:match('^\27%[(%d+);(%d+):(%d)u()', offset) end
   if not keycode then keycode, mods, event, new_offset = buf:match('^\27%[(%d+):%d+;(%d+):(%d)u()', offset) end
-  if not keycode then keycode, mods, event, new_offset = buf:match('^\27%[%d+::(%d+);(%d+):(%d)u()', offset) end
+  if not keycode then keycode, mods, event, new_offset = buf:match('^\27%[%d+:%d*:(%d+);(%d+):(%d)u()', offset) end
 
   if not keycode then keycode, mods, event, codepoint, new_offset = buf:match('^\27%[(%d+);(%d+):(%d);(%d+)u()', offset) end
   if not keycode then keycode, mods, event, codepoint, new_offset = buf:match('^\27%[(%d+):%d+;(%d+):(%d);(%d+)u()', offset) end
-  if not keycode then keycode, mods, event, codepoint, new_offset = buf:match('^\27%[%d+::(%d+);(%d+):(%d);(%d+)u()', offset) end
+  if not keycode then keycode, mods, event, codepoint, new_offset = buf:match('^\27%[%d+:%d*:(%d+);(%d+):(%d);(%d+)u()', offset) end
 
   if not keycode then
     return nil, offset
@@ -398,7 +394,7 @@ function InputParser:take_kitty_key(buf, offset)
     type = 'release'
   end
   local button = self.kitty_keycodes[tonumber(keycode)]
-  mods = mods and tonumber(mods) - 1 or 0
+  mods = mods and (tonumber(mods) or 1) - 1 or 0
 
   if button then
     return {{
@@ -454,6 +450,8 @@ function InputParser:take_functional_key(buf, offset)
     ['\27[Q'] = 'f2',
     ['\27[13~'] = 'f3',
     ['\27[S'] = 'f4',
+    -- On st:
+    ['\27[4~'] = 'end',
   })[seq]
 
   if button then
@@ -551,12 +549,54 @@ function InputParser:take_paste(buf, offset)
   return {{ type = 'paste', text = buf:sub(offset + 6, end_offset - 1) }}, end_offset + 6
 end
 
-function InputParser:drop_kitty_functional_key(buf, offset)
-  local new_offset = buf:match('^\27%[%d+;%d+:%d[ABCDEFHPQS~]()', offset)
-  if new_offset then
-    return {}, new_offset
-  else
+function InputParser:take_kitty_functional_key(buf, offset)
+  local keycode1, mods, event, keycode2, new_offset = buf:match('^\27%[(%d+);(%d+):(%d)(.)()', offset)
+  if not new_offset then
     return nil, offset
+  end
+
+  mods = tonumber(mods) - 1
+  local shift = mods & 1 ~= 0
+  local alt = mods & 2 ~= 0
+  local ctrl = mods & 4 ~= 0
+  local button = ({
+    ['1 P'] = 'f1',
+    ['1 Q'] = 'f2',
+    ['13 ~'] = 'f3',
+    ['1 S'] = 'f4',
+    ['15 ~'] = 'f5',
+    ['17 ~'] = 'f6',
+    ['18 ~'] = 'f7',
+    ['19 ~'] = 'f8',
+    ['20 ~'] = 'f9',
+    ['21 ~'] = 'f10',
+    ['23 ~'] = 'f11',
+    ['24 ~'] = 'f12',
+    ['2 ~'] = 'insert',
+    ['3 ~'] = 'delete',
+    ['1 H'] = 'home',
+    ['1 F'] = 'end',
+    ['5 ~'] = 'page_up',
+    ['6 ~'] = 'page_down',
+    ['1 A'] = 'up',
+    ['1 D'] = 'left',
+    ['1 B'] = 'down',
+    ['1 C'] = 'right',
+    ['1 E'] = 'kp_5',
+  })[keycode1 .. ' ' .. keycode2]
+  if not button then
+    return nil, offset
+  end
+
+  -- We report functional key repeats as press and release to be consistent with
+  -- the way functional key presses unfortunately have to be handled in Kitty.
+  if event == '2' then
+    return {
+      { type = 'press',   button = button, alt = alt, ctrl = ctrl, shift = shift },
+      { type = 'release', button = button, alt = alt, ctrl = ctrl, shift = shift },
+    }, new_offset
+  else
+    return {}, new_offset
   end
 end
 

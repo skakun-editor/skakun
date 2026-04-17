@@ -1,9 +1,18 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
-  const target = b.standardTargetOptions(.{});
-  const optimize = b.standardOptimizeOption(.{});
+var b: *std.Build = undefined;
+var target: std.Build.ResolvedTarget = undefined;
+var optimize: std.builtin.OptimizeMode = undefined;
+
+var zlua: *std.Build.Dependency = undefined;
+
+pub fn build(_b: *std.Build) void {
+  b = _b;
+  target = b.standardTargetOptions(.{});
+  optimize = b.standardOptimizeOption(.{});
+
   const dep_opts = .{ .target = target, .optimize = optimize };
+  zlua = b.dependency("zlua", dep_opts);
 
   const exe = b.addExecutable(.{
     .name = "skak",
@@ -14,10 +23,7 @@ pub fn build(b: *std.Build) void {
       .link_libc = true,
     }),
   });
-  const zlua = b.dependency("zlua", dep_opts);
   exe.root_module.addImport("zlua", zlua.module("zlua"));
-  exe.linkSystemLibrary(if(target.result.os.tag == .linux) "gio-unix-2.0" else "gio-2.0");
-  exe.linkSystemLibrary("tinfo");
 
   const libgrapheme = b.addLibrary(.{
     .linkage = .static,
@@ -63,7 +69,6 @@ pub fn build(b: *std.Build) void {
     }
     libgrapheme.installHeadersDirectory(dep.path(""), ".", .{});
   }
-  exe.linkLibrary(libgrapheme);
 
   var lua: ?*std.Build.Step.Compile = null; // Lazy dependencies are kinda half-baked to be honest…
   for(zlua.builder.install_tls.step.dependencies.items) |step| {
@@ -75,48 +80,21 @@ pub fn build(b: *std.Build) void {
   }
 
   {
-    const lib = b.addLibrary(.{
-      .linkage = .dynamic,
-      .name = "core.enchant",
-      .root_module = b.createModule(.{
-        .root_source_file = b.path("src/core/enchant.zig"),
-        .target = target,
-        .optimize = optimize,
-      }),
-    });
-    lib.root_module.addImport("zlua", zlua.module("zlua"));
-    lib.linkSystemLibrary("enchant-2");
-    b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{ .dest_sub_path = "core/enchant.so" }).step);
-  }
-
-  {
-    const lib = b.addLibrary(.{
-      .linkage = .dynamic,
-      .name = "core.grapheme",
-      .root_module = b.createModule(.{
-        .root_source_file = b.path("src/core/grapheme.zig"),
-        .target = target,
-        .optimize = optimize,
-      }),
-    });
-    lib.root_module.addImport("zlua", zlua.module("zlua"));
+    const lib = add_lua_module("core.buffer", &.{});
+    lib.linkSystemLibrary(if(target.result.os.tag == .linux) "gio-unix-2.0" else "gio-2.0");
     lib.linkLibrary(libgrapheme);
-    b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{ .dest_sub_path = "core/grapheme.so" }).step);
   }
-
-  {
-    const lib = b.addLibrary(.{
-      .linkage = .dynamic,
-      .name = "core.utils.timer",
-      .root_module = b.createModule(.{
-        .root_source_file = b.path("src/core/utils/timer.zig"),
-        .target = target,
-        .optimize = optimize,
-      }),
-    });
-    lib.root_module.addImport("zlua", zlua.module("zlua"));
-    b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{ .dest_sub_path = "core/utils/timer.so" }).step);
+  add_lua_module("core.enchant", &.{}).linkSystemLibrary("enchant-2");
+  add_lua_module("core.grapheme", &.{}).linkLibrary(libgrapheme);
+  add_lua_module("core.tty.system", &.{}).linkSystemLibrary("tinfo");
+  if(target.result.os.tag == .linux) {
+    _ = add_lua_module("core.tty.linux.system", &.{"core.tty.system"});
+  } else if(target.result.os.tag == .windows) {
+    _ = add_lua_module("core.tty.windows", &.{});
+  } else if(target.result.os.tag.isBSD()) {
+    _ = add_lua_module("core.tty.freebsd.system", &.{"core.tty.system"});
   }
+  _ = add_lua_module("core.utils.timer", &.{});
 
   {
     const dep = b.dependency("lua_cjson", dep_opts);
@@ -167,7 +145,7 @@ pub fn build(b: *std.Build) void {
       .install_subdir = "LuaGObject",
       .include_extensions = &.{".lua"},
     });
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.addWriteFile("filename", "return '0.10.1'\n").getDirectory().path(b, "filename"), .lib, "LuaGObject/version.lua").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.addWriteFile("filename", "return '0.10.5'\n").getDirectory().path(b, "filename"), .lib, "LuaGObject/version.lua").step);
   }
 
   {
@@ -276,4 +254,28 @@ pub fn build(b: *std.Build) void {
 
   const run_step = b.step("run", "Run the app");
   run_step.dependOn(&run.step);
+}
+
+fn add_lua_module(name: []const u8, imports: []const []const u8) *std.Build.Step.Compile {
+  const lib = b.addLibrary(.{
+    .linkage = .dynamic,
+    .name = name,
+    .root_module = b.createModule(.{
+      .root_source_file = b.path(std.mem.concat(b.allocator, u8, &.{"src/", std.mem.replaceOwned(u8, b.allocator, name, ".", "/") catch @panic("OOM"), ".zig"}) catch @panic("OOM")),
+      .target = target,
+      .optimize = optimize,
+    }),
+  });
+  lib.root_module.addImport("zlua", zlua.module("zlua"));
+  for(imports) |subname| {
+    lib.root_module.addAnonymousImport(subname, .{
+      .root_source_file = b.path(std.mem.concat(b.allocator, u8, &.{"src/", std.mem.replaceOwned(u8, b.allocator, subname, ".", "/") catch @panic("OOM"), ".zig"}) catch @panic("OOM")),
+      .target = target,
+      .optimize = optimize,
+    });
+  }
+  b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{
+    .dest_sub_path = std.mem.concat(b.allocator, u8, &.{std.mem.replaceOwned(u8, b.allocator, name, ".", "/") catch @panic("OOM"), ".so"}) catch @panic("OOM")
+  }).step);
+  return lib;
 }

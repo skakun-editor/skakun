@@ -121,7 +121,7 @@ function SpellChecker:check(buffer, tree, grammar, dict, is_async)
 
   local enchant_dict = self.broker:request_dict(dict)
   if not enchant_dict then
-    self.cached[buffer] = nil
+    self.cache[buffer] = nil
     return nil
   end
 

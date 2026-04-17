@@ -51,7 +51,7 @@ function ActionPrompt.new(path)
       'activate',
       'Activate selected action',
       'Activates the currently selected action.',
-      'enter',
+      {'enter', 'kp_enter'},
       function(action, event)
         self:activate_selected_action()
       end
@@ -118,9 +118,9 @@ function ActionPrompt.new(path)
     ),
     Action.new_simple(
       'select_first',
-      'Selects the first action',
+      'Select the first action',
       nil,
-      'home',
+      'ctrl+home',
       function(action, event)
         for i, action in ipairs(self.listed_actions) do
           if self:should_show_action(action) then
@@ -133,9 +133,9 @@ function ActionPrompt.new(path)
     ),
     Action.new_simple(
       'select_last',
-      'Selects the last action',
+      'Select the last action',
       nil,
-      'end',
+      'ctrl+end',
       function(action, event)
         for i = #self.listed_actions, 1, -1 do
           if self:should_show_action(self.listed_actions[i]) then
@@ -189,7 +189,7 @@ function ActionPrompt:draw()
   for _, action_idx in ipairs(visible_actions_idxs) do
     local action = self.listed_actions[action_idx]
 
-    local hint = action:activation_hint()
+    local hint = action.activation_hint or ''
     local hint_width = math.min(self.width, self:width_of_text(hint))
     self:draw_text(
       action.widget.name .. ': ' .. action.name,
@@ -346,7 +346,7 @@ function ActionPrompt:should_show_action(action)
 end
 
 function ActionPrompt:action_text(action)
-  return action.widget.name .. ': ' .. action.name .. ' ' .. action:activation_hint()
+  return action.widget.name .. ': ' .. action.name .. ' ' .. (action.activation_hint or '')
 end
 
 function ActionPrompt:selected_action_idx()

@@ -20,7 +20,7 @@ local tty    = require('core.tty')
 local utils  = require('core.utils')
 
 local Navigator = {
-  tab_width = 8, -- HACK: should be copied in constructor
+  tab_width = 8,
   global_cache_skip = 1e4,
   max_local_cache_size = 1e3,
   local_cache_prune_probability = 0.5,
@@ -33,6 +33,7 @@ function Navigator.new(buffer)
   local self = setmetatable({
     buffer = buffer,
   }, Navigator)
+  self.tab_width = self.tab_width
 
   if buffer.parent then
     local parent = buffer.parent.navigator

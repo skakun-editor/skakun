@@ -31,6 +31,7 @@ local utils             = require('core.utils')
 -- TODO: proper undo and redo
 -- TODO: set native cursor and window title when widget focused
 -- IDEA: highlight suspicious unicode characters, such as variation selectors
+-- BUG: invisible selections in linux console
 
 local DocView = setmetatable({
   name = 'Document View',
@@ -98,12 +99,10 @@ function DocView.new(doc)
       end
     ),
     Action.new(
-      'goto_mouse',
+      'cursors_mouse',
       'Move cursors to mouse pointer',
       nil,
-      function(action)
-        return action.button_symbols.mouse_left
-      end,
+      Action.button_symbols.mouse_left,
       function(action, event)
         return event.type == 'press' and event.button == 'mouse_left' and
               not event.alt and not event.ctrl and not event.shift and
@@ -122,12 +121,10 @@ function DocView.new(doc)
       end
     ),
     Action.new(
-      'select_mouse',
-      'Add selection at mouse pointer',
+      'new_cursor_mouse',
+      'Add cursor at mouse pointer',
       nil,
-      function(action)
-        return action.mod_symbols.alt .. action.button_symbols.mouse_left
-      end,
+      Action.mod_symbols.alt .. Action.button_symbols.mouse_left,
       function(action, event)
         return event.type == 'press' and event.button == 'mouse_left' and
               event.alt and not event.ctrl and not event.shift and
@@ -146,16 +143,10 @@ function DocView.new(doc)
       end
     ),
     Action.new(
-      'goto_mouse_select',
-      'Extend latest selection to mouse pointer',
+      'latest_cursor_mouse_select',
+      'Move latest selection head to mouse pointer',
       nil,
-      function(action)
-        if self.mouse_is_dragging_selection then
-          return 'Hold ' .. action.button_symbols.mouse_left .. ' and drag'
-        else
-          return action.mod_symbols.shift .. action.button_symbols.mouse_left
-        end
-      end,
+      Action.mod_symbols.shift .. Action.button_symbols.mouse_left,
       function(action, event)
         return (event.type == 'press' and event.button == 'mouse_left' and
                 not event.alt and not event.ctrl and event.shift or
@@ -175,11 +166,9 @@ function DocView.new(doc)
     ),
     Action.new(
       'stop_drag',
-      'Stop dragging cursor',
+      'Stop dragging selection head',
       nil,
-      function(action)
-        return 'Release ' .. action.button_symbols.mouse_left
-      end,
+      'Release ' .. Action.button_symbols.mouse_left,
       function(action, event)
         return event.type == 'release' and event.button == 'mouse_left'
       end,
@@ -188,7 +177,7 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_left',
+      'cursors_left',
       'Move cursors left',
       nil,
       'left',
@@ -200,7 +189,7 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_right',
+      'cursors_right',
       'Move cursors right',
       nil,
       'right',
@@ -212,7 +201,7 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_up',
+      'cursors_up',
       'Move cursors up',
       nil,
       'up',
@@ -224,7 +213,7 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_down',
+      'cursors_down',
       'Move cursors down',
       nil,
       'down',
@@ -236,7 +225,7 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_up_page',
+      'cursors_up_page',
       'Move cursors up by a page',
       nil,
       'page_up',
@@ -248,7 +237,7 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_down_page',
+      'cursors_down_page',
       'Move cursors down by a page',
       nil,
       'page_down',
@@ -260,7 +249,7 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'goto_line_start',
+      'cursors_line_start',
       'Move cursors to line start',
       nil,
       'home',
@@ -272,7 +261,7 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'goto_line_end',
+      'cursors_line_end',
       'Move cursors to line end',
       nil,
       'end',
@@ -284,7 +273,7 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'goto_buffer_start',
+      'cursors_buffer_start',
       'Move cursors to buffer start',
       nil,
       'ctrl+home',
@@ -296,7 +285,7 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'goto_buffer_end',
+      'cursors_buffer_end',
       'Move cursors to buffer end',
       nil,
       'ctrl+end',
@@ -308,8 +297,8 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_left_select',
-      'Extend selections left',
+      'cursors_left_select',
+      'Move selection heads left',
       nil,
       'shift+left',
       function(action, event)
@@ -320,8 +309,8 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_right_select',
-      'Extend selections right',
+      'cursors_right_select',
+      'Move selection heads right',
       nil,
       'shift+right',
       function(action, event)
@@ -332,8 +321,8 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_up_select',
-      'Extend selections up',
+      'cursors_up_select',
+      'Move selection heads up',
       nil,
       'shift+up',
       function(action, event)
@@ -344,8 +333,8 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_down_select',
-      'Extend selections down',
+      'cursors_down_select',
+      'Move selection heads down',
       nil,
       'shift+down',
       function(action, event)
@@ -356,8 +345,8 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_up_page_select',
-      'Extend selections up by a page',
+      'cursors_up_page_select',
+      'Move selection heads up by a page',
       nil,
       'shift+page_up',
       function(action, event)
@@ -368,8 +357,8 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'move_down_page_select',
-      'Extend selections down by a page',
+      'cursors_down_page_select',
+      'Move selection heads down by a page',
       nil,
       'shift+page_down',
       function(action, event)
@@ -380,8 +369,8 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'goto_line_start_select',
-      'Extend selections to line start',
+      'cursors_line_start_select',
+      'Move selection heads to line start',
       nil,
       'shift+home',
       function(action, event)
@@ -392,8 +381,8 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'goto_line_end_select',
-      'Extend selections to line end',
+      'cursors_line_end_select',
+      'Move selection heads to line end',
       nil,
       'shift+end',
       function(action, event)
@@ -404,8 +393,8 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'goto_buffer_start_select',
-      'Extend selections to buffer start',
+      'cursors_buffer_start_select',
+      'Move selection heads to buffer start',
       nil,
       'ctrl+shift+home',
       function(action, event)
@@ -416,8 +405,8 @@ function DocView.new(doc)
       end
     ),
     Action.new_simple(
-      'goto_buffer_end_select',
-      'Extend selections to buffer end',
+      'cursors_buffer_end_select',
+      'Move selection heads to buffer end',
       nil,
       'ctrl+shift+end',
       function(action, event)
@@ -534,9 +523,7 @@ function DocView.new(doc)
       'insert_left',
       'Insert text before each cursor',
       nil,
-      function(action)
-        return 'Type or paste'
-      end,
+      'Type or paste',
       function(action, event)
         return event.text
       end,

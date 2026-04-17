@@ -67,8 +67,6 @@ function ui.run(root)
 
       local start = utils.timer()
       tty.sync_begin()
-      tty.set_background()
-      tty.clear()
 
       root:draw()
 

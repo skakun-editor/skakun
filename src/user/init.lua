@@ -12,6 +12,7 @@ local DocView           = require('core.ui.doc_view')
 local nerd_fonts        = require('core.ui.nerd_fonts')
 local Widget            = require('core.ui.widget')
 local utils             = require('core.utils')
+local tty_test          = require('misc.tty_test')
 local dracula           = require('theme.dracula')
 local fruitmash_dark    = require('theme.fruitmash_dark')
 local fruitmash_light   = require('theme.fruitmash_light')
@@ -24,6 +25,7 @@ local gruvbox_light     = require('theme.gruvbox_light')
 -- TODO: logo
 -- HACK: update docs when you're finished lol
 -- TODO: autosave when idle
+-- TODO: do we really need descriptions for all ui actions?
 
 core.should_forward_stderr_on_exit = false
 utils.lock_globals()
@@ -166,11 +168,9 @@ root:add_actions(
   ),
   Action.new(
     'set_theme',
-    'Set the theme',
+    'Set UI theme',
     nil,
-    function(action)
-      return action.mod_symbols.ctrl .. '[F1-F' .. #themes .. ']'
-    end,
+    Action.mod_symbols.ctrl .. '[F1-F' .. #themes .. ']',
     function(action, event)
       local num = event.button and tonumber(event.button:match('f(%d+)'))
       return event.type == 'press' and num and num <= #themes and not event.alt and event.ctrl and not event.shift
@@ -202,6 +202,17 @@ root:add_actions(
         action_prompt.parent = root
         action_prompt:add_actions_of(root, true)
       end
+      root:request_draw()
+    end
+  ),
+  Action.new(
+    'tty_test',
+    'Test terminal',
+    'Runs a demo routine showcasing all the supported features of your terminal.',
+    nil,
+    nil,
+    function(action, event)
+      tty_test()
       root:request_draw()
     end
   )

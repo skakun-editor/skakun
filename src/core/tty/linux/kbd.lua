@@ -112,8 +112,8 @@ function Kbd:handle_keycode(keycode, is_release, is_repeat)
     return
   end
 
-  if action >= 0xf000 then
-    return self:handle_codepoint(action & 0x0fff)
+  if action >= 0x1000 then
+    return self:handle_codepoint(action ~ 0xf000, is_release)
   end
 
   if action >> 8 == KT.LETTER then
@@ -139,6 +139,11 @@ end
 function Kbd:handle_action(action, is_release, is_repeat)
   if action >> 8 == KT.LATIN then
     return self:handle_codepoint(action & 0xff, is_release)
+
+  elseif action >> 8 == KT.FN then
+    -- Intentionally left unimplemented because the default strings for these
+    -- macros are the escape sequences for functional keys, which are not the
+    -- text users would like to enter.
 
   elseif action >> 8 == KT.SPEC then
     if is_release then return end
@@ -261,6 +266,10 @@ function Kbd:handle_action(action, is_release, is_repeat)
   elseif action >> 8 == KT.CONS then
     if is_release then return end
     system.set_active_vc((action & 0xff) + 1)
+
+  elseif action >> 8 == KT.CUR then
+    -- Intentionally left unimplemented because this action just emits cursor
+    -- key escape sequences.
 
   elseif action >> 8 == KT.SHIFT then
     if is_repeat then return end

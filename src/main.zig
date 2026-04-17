@@ -128,6 +128,7 @@ pub fn main() !void {
   }
 
   vm = try .init(allocator);
+  if(c.atexit(cleanup_vm) != 0) return error.OutOfMemory;
   vm.openLibs();
 
   assert(vm.getSubtable(lua.registry_index, "_LOADED"));
@@ -188,11 +189,12 @@ pub fn main() !void {
   }
 
   try vm.doString(
-    \\-- main.zig main() #1
+    \\-- main.zig main()
+    \\local core = require('core')
     \\xpcall(
     \\  function()
-    \\    local core = require('core')
     \\    core.cleanups = {}
+    \\
     \\    if core.platform == 'windows' then
     \\      -- %APPDATA% differs from %LOCALAPPDATA% in that it is synced
     \\      -- across devices.
@@ -218,36 +220,15 @@ pub fn main() !void {
     \\    else
     \\      core.cache_dir = (os.getenv('XDG_CACHE_HOME') or os.getenv('HOME') .. '/.cache') .. '/skakun'
     \\    end
+    \\
+    \\    require('user')
     \\  end,
     \\
     \\  function(err)
-    \\    -- The depth has to be 1 here for some reason.
-    \\    io.stderr:write(debug.traceback(err), '\n')
+    \\    io.stderr:write(debug.traceback(err, 2), '\n')
+    \\    core.should_forward_stderr_on_exit = true
     \\    os.exit(1)
     \\  end
     \\)
-  );
-
-  vm.requireF("core.buffer", lua.wrap(@import("core/buffer.zig").luaopen), false);
-  vm.requireF("core.tty.system", lua.wrap(@import("core/tty/system.zig").luaopen), false);
-  if(builtin.os.tag == .linux) {
-    vm.requireF("core.tty.linux.system", lua.wrap(@import("core/tty/linux/system.zig").luaopen), false);
-  } else if(builtin.os.tag == .windows) {
-    vm.requireF("core.tty.windows", lua.wrap(@import("core/tty/windows.zig").luaopen), false);
-  } else if(builtin.os.tag.isBSD()) {
-    vm.requireF("core.tty.freebsd.system", lua.wrap(@import("core/tty/freebsd/system.zig").luaopen), false);
-  }
-
-  // We let Zig modules do their cleanup after Lua's turn.
-  if(c.atexit(cleanup_vm) != 0) return error.OutOfMemory;
-
-  try vm.doString(
-    \\-- main.zig main() #2
-    \\local core = require('core')
-    \\xpcall(require, function(err)
-    \\  io.stderr:write(debug.traceback(err, 2), '\n')
-    \\  core.should_forward_stderr_on_exit = true
-    \\  os.exit(1)
-    \\end, 'user')
   );
 }

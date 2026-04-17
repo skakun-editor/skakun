@@ -32,19 +32,23 @@ const assert = std.debug.assert;
 const File = std.fs.File;
 const posix = std.posix;
 
-pub var is_open = false;
-pub var file: if(builtin.os.tag == .windows) struct { in: File, out: File } else File = undefined;
+pub const Interface = struct {
+  is_open: bool = false,
+  file: if(builtin.os.tag == .windows) struct { in: File, out: File } else File = undefined,
+  reader: File.Reader = undefined,
+  writer: File.Writer = undefined,
+};
+
+var tty: Interface = .{};
 var reader_buf: [4096]u8 = undefined;
-pub var reader: File.Reader = undefined;
 // The buffer should be big enough to hold the entire screen in order to prevent
 // flickering during redraws but we shouldn't care about redraws which are too
 // slow anyways. The difference the buffer size makes is especially noticeable
 // in xterm.
 var writer_buf: [65536]u8 = undefined;
-pub var writer: File.Writer = undefined;
 
 fn open(vm: *lua.Lua) i32 {
-  if(is_open) vm.raiseErrorStr("tty is already open", .{});
+  if(tty.is_open) vm.raiseErrorStr("tty is already open", .{});
   // We get hold of the controlling terminal directly, because stdin and stdout
   // might have been redirected to pipes.
   if(builtin.os.tag == .windows) {
@@ -93,37 +97,37 @@ fn open(vm: *lua.Lua) i32 {
     // - https://github.com/rprichard/win32-console-docs#console-handles-modern
     // - https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
     // - https://learn.microsoft.com/en-us/sysinternals/downloads/winobj
-    file.in  = std.fs.cwd().openFile("\\\\.\\CONIN$",  .{ .mode = .read_only  }) catch |err| vm.raiseErrorStr("failed to open CONIN$: %s", .{@errorName(err).ptr});
-    file.out = std.fs.cwd().openFile("\\\\.\\CONOUT$", .{ .mode = .write_only }) catch |err| {
-      file.in.close();
+    tty.file.in  = std.fs.cwd().openFile("\\\\.\\CONIN$",  .{ .mode = .read_only  }) catch |err| vm.raiseErrorStr("failed to open CONIN$: %s", .{@errorName(err).ptr});
+    tty.file.out = std.fs.cwd().openFile("\\\\.\\CONOUT$", .{ .mode = .write_only }) catch |err| {
+      tty.file.in.close();
       vm.raiseErrorStr("failed to open CONOUT$: %s", .{@errorName(err).ptr});
     };
     // Yeah… uhh… it turns out CON can be opened with read or write access but not both…
     // Source: https://stackoverflow.com/questions/47534039/windows-console-handle-for-con-device#comment82036446_47534039
-    reader = file.in.reader(&reader_buf);
-    writer = file.out.writer(&writer_buf);
+    tty.reader = tty.file.in.reader(&reader_buf);
+    tty.writer = tty.file.out.writer(&writer_buf);
   } else {
     // Why "/dev/tty" exactly? Well, the answer is simple and well-documented
     // (unlike that other operating system):
     // - https://unix.stackexchange.com/q/60641
     // - https://tldp.org/HOWTO/Text-Terminal-HOWTO-7.html
-    file = std.fs.cwd().openFile("/dev/tty", .{ .mode = .read_write }) catch |err| vm.raiseErrorStr("failed to open /dev/tty: %s", .{@errorName(err).ptr});
-    reader = file.reader(&reader_buf);
-    writer = file.writer(&writer_buf);
+    tty.file = std.fs.cwd().openFile("/dev/tty", .{ .mode = .read_write }) catch |err| vm.raiseErrorStr("failed to open /dev/tty: %s", .{@errorName(err).ptr});
+    tty.reader = tty.file.reader(&reader_buf);
+    tty.writer = tty.file.writer(&writer_buf);
   }
-  is_open = true;
+  tty.is_open = true;
   return 0;
 }
 
 fn close(_: *lua.Lua) i32 {
-  if(!is_open) return 0;
-  is_open = false;
-  writer.interface.flush() catch {};
+  if(!tty.is_open) return 0;
+  tty.is_open = false;
+  tty.writer.interface.flush() catch {};
   if(builtin.os.tag == .windows) {
-    file.in.close();
-    file.out.close();
+    tty.file.in.close();
+    tty.file.out.close();
   } else {
-    file.close();
+    tty.file.close();
   }
   return 0;
 }
@@ -131,10 +135,10 @@ fn close(_: *lua.Lua) i32 {
 var original_termios: ?posix.termios = null;
 
 fn enable_raw_mode(vm: *lua.Lua) i32 {
-  if(!is_open) vm.raiseErrorStr("tty is closed", .{});
+  if(!tty.is_open) vm.raiseErrorStr("tty is closed", .{});
   if(original_termios != null) return 0;
 
-  var termios = posix.tcgetattr(file.handle) catch |err| vm.raiseErrorStr("failed to get original termios: %s", .{@errorName(err).ptr});
+  var termios = posix.tcgetattr(tty.file.handle) catch |err| vm.raiseErrorStr("failed to get original termios: %s", .{@errorName(err).ptr});
   original_termios = termios;
 
   // Further reading:
@@ -143,51 +147,51 @@ fn enable_raw_mode(vm: *lua.Lua) i32 {
   c.cfmakeraw(@ptrCast(&termios));
   termios.cc[@intFromEnum(posix.V.MIN)] = 0;
   termios.cc[@intFromEnum(posix.V.TIME)] = 0;
-  posix.tcsetattr(file.handle, .FLUSH, termios) catch |err| vm.raiseErrorStr("failed to set raw termios: %s", .{@errorName(err).ptr});
+  posix.tcsetattr(tty.file.handle, .FLUSH, termios) catch |err| vm.raiseErrorStr("failed to set raw termios: %s", .{@errorName(err).ptr});
 
   return 0;
 }
 
-fn disable_raw_mode(vm: *lua.Lua) i32 {
-  if(!is_open) vm.raiseErrorStr("tty is closed", .{});
+fn disable_raw_mode(vm: *lua.Lua) !i32 {
+  if(!tty.is_open) vm.raiseErrorStr("tty is closed", .{});
   if(original_termios) |x| {
-    posix.tcsetattr(file.handle, .FLUSH, x) catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
+    try posix.tcsetattr(tty.file.handle, .FLUSH, x);
     original_termios = null;
   }
   return 0;
 }
 
-fn write(vm: *lua.Lua) i32 {
-  if(!is_open) vm.raiseErrorStr("tty is closed", .{});
+fn write(vm: *lua.Lua) !i32 {
+  if(!tty.is_open) vm.raiseErrorStr("tty is closed", .{});
   for(1 .. @intCast(vm.getTop() + 1)) |arg_idx| {
-    writer.interface.writeAll(vm.checkString(@intCast(arg_idx))) catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
+    tty.writer.interface.writeAll(vm.checkString(@intCast(arg_idx))) catch return tty.writer.err.?;
   }
   return 0;
 }
 
-fn flush(vm: *lua.Lua) i32 {
-  if(!is_open) vm.raiseErrorStr("tty is closed", .{});
-  writer.interface.flush() catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
+fn flush(vm: *lua.Lua) !i32 {
+  if(!tty.is_open) vm.raiseErrorStr("tty is closed", .{});
+  tty.writer.interface.flush() catch return tty.writer.err.?;
   return 0;
 }
 
-fn read(vm: *lua.Lua) i32 {
-  if(!is_open) vm.raiseErrorStr("tty is closed", .{});
+fn read(vm: *lua.Lua) !i32 {
+  if(!tty.is_open) vm.raiseErrorStr("tty is closed", .{});
   var result: lua.Buffer = undefined;
   // A tight limit of 4KiB so as not to punish quadratic algorithms downstream.
-  result.pushResultSize(reader.interface.readSliceShort(result.initSize(vm, 4096)) catch vm.raiseErrorStr("%s", .{@errorName(reader.err.?).ptr}));
+  result.pushResultSize(tty.reader.interface.readSliceShort(result.initSize(vm, 4096)) catch return tty.reader.err.?);
   return 1;
 }
 
-fn wait_for_read(vm: *lua.Lua) i32 {
-  if(!is_open) vm.raiseErrorStr("tty is closed", .{});
+fn wait_for_read(vm: *lua.Lua) !i32 {
+  if(!tty.is_open) vm.raiseErrorStr("tty is closed", .{});
   const timeout = vm.optNumber(1);
   var fds = [_]posix.pollfd{.{
-    .fd = (if(builtin.os.tag == .windows) file.in else file).handle,
+    .fd = (if(builtin.os.tag == .windows) tty.file.in else tty.file).handle,
     .events = posix.POLL.IN,
     .revents = 0,
   }};
-  _ = posix.poll(&fds, @intFromFloat(1e3 * (timeout orelse -1))) catch |err| vm.raiseErrorStr("%s", .{@errorName(err).ptr});
+  _ = try posix.poll(&fds, @intFromFloat(1e3 * (timeout orelse -1)));
   if(fds[0].revents == posix.POLL.IN) {
     vm.pushBoolean(true);
   } else {
@@ -197,17 +201,17 @@ fn wait_for_read(vm: *lua.Lua) i32 {
 }
 
 fn get_size(vm: *lua.Lua) i32 {
-  if(!is_open) vm.raiseErrorStr("tty is closed", .{});
+  if(!tty.is_open) vm.raiseErrorStr("tty is closed", .{});
   var result: c.winsize = undefined;
-  if(std.c.ioctl(if(builtin.os.tag == .windows) file.out.handle else file.handle, c.TIOCGWINSZ, &result) < 0) vm.raiseErrorStr("%s", .{c.strerror(std.c._errno().*)});
+  if(std.c.ioctl(if(builtin.os.tag == .windows) tty.file.out.handle else tty.file.handle, c.TIOCGWINSZ, &result) < 0) vm.raiseErrorStr("%s", .{c.strerror(std.c._errno().*)});
   vm.pushInteger(result.ws_col);
   vm.pushInteger(result.ws_row);
   return 2;
 }
 
-fn width_of(vm: *lua.Lua) i32 {
+fn width_of(vm: *lua.Lua) !i32 {
   var result: usize = 0;
-  var iter = (std.unicode.Utf8View.init(vm.checkString(1)) catch vm.raiseErrorStr("invalid UTF-8 code", .{})).iterator();
+  var iter = (try std.unicode.Utf8View.init(vm.checkString(1))).iterator();
   // Open sesame! (This was tricky to find.)
   _ = std.c.setlocale(std.c.LC.CTYPE, "");
   while(iter.nextCodepoint()) |x| {
@@ -301,7 +305,17 @@ const funcs = blk: {
   };
 };
 
-pub fn luaopen(vm: *lua.Lua) i32 {
+fn luaopen(vm: *lua.Lua) i32 {
   vm.newLib(&funcs);
+
+  vm.pushLightUserdata(&tty);
+  vm.setField(-2, "interface");
+
   return 1;
+}
+
+comptime {
+  if(@This() == @import("root")) {
+    _ = lua.exportFn("core_tty_system", luaopen);
+  }
 }

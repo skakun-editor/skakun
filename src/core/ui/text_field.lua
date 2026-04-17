@@ -48,9 +48,7 @@ function TextField.new()
       'goto_mouse',
       'Move cursor to mouse pointer',
       nil,
-      function(action)
-        return action.button_symbols.mouse_left
-      end,
+      Action.button_symbols.mouse_left,
       function(action, event)
         return (event.type == 'press' or event.type == 'release') and event.button == 'mouse_left' and
                utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) or
@@ -274,9 +272,7 @@ function TextField.new()
       'insert_left',
       'Insert text before cursor',
       nil,
-      function(action)
-        return 'Type or paste'
-      end,
+      'Type or paste',
       function(action, event)
         return event.text
       end,

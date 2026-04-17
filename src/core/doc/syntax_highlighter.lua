@@ -130,6 +130,7 @@ function SyntaxHighlighter:highlight(buffer, tree, grammar, is_async)
   while parent do
     local cached = self.cache[parent]
     if self.cache[parent] then
+      -- TODO: use a smarter array that would take into account the edits
       highlight_at = setmetatable(highlight_at, { __index = self.cache[parent].highlight_at })
       break
     end

@@ -160,40 +160,52 @@ function Action.new(id, name, desc, activation_hint, is_activated_by_event, acti
   }, Action)
 end
 
-function Action.new_simple(id, name, desc, mod_button, activate)
+function Action.new_simple(id, name, desc, mod_buttons, activate)
   local self = Action.new(id, name, desc, nil, nil, activate)
-  self:set_activation_button(mod_button)
+  if type(mod_buttons) == 'table' then
+    self:set_activation_buttons(table.unpack(mod_buttons))
+  else
+    self:set_activation_buttons(mod_buttons)
+  end
   return self
 end
 
-function Action:set_activation_button(mod_button)
-  local alt, ctrl, shift = false, false, false
-  while true do
-    local mod, button = mod_button:match('([^+]*)%+(.*)')
-    if not mod then break end
-    if mod == 'alt' then
-      alt = true
-    elseif mod == 'ctrl' then
-      ctrl = true
-    elseif mod == 'shift' then
-      shift = true
-    else
-      error(('unknown modifier: %s'):format(mod))
-    end
-    mod_button = button
-  end
-
-  function self:activation_hint()
-    return (ctrl and self.mod_symbols.ctrl or '') .. (shift and self.mod_symbols.shift or '') .. (alt and self.mod_symbols.alt or '') .. self.button_symbols[mod_button]
-  end
-  -- HACK: this functionality should be separated out into a method for events but I haven't figured out yet how to smoothly integrate that into the rest of the tty code
+function Action:set_activation_buttons(...)
+  self.activation_hint = nil
   function self:is_activated_by_event(event)
-    return (event.type == 'press' or event.type == 'repeat') and event.button == mod_button and event.alt == alt and event.ctrl == ctrl and event.shift == shift
+    return false
   end
-end
 
-function Action:activation_hint()
-  return nil
+  for i = 1, select('#', ...) do
+    local mod_button = select(i, ...)
+
+    local alt, ctrl, shift = false, false, false
+    while true do
+      local mod, button = mod_button:match('([^+]*)%+(.*)')
+      if not mod then break end
+      if mod == 'alt' then
+        alt = true
+      elseif mod == 'ctrl' then
+        ctrl = true
+      elseif mod == 'shift' then
+        shift = true
+      else
+        error(('unknown modifier: %s'):format(mod))
+      end
+      mod_button = button
+    end
+
+    self.activation_hint = (self.activation_hint and self.activation_hint .. '/' or '') ..
+                           (ctrl and self.mod_symbols.ctrl or '') ..
+                           (shift and self.mod_symbols.shift or '') ..
+                           (alt and self.mod_symbols.alt or '') ..
+                           self.button_symbols[mod_button]
+    local continue = self.is_activated_by_event
+    function self:is_activated_by_event(event)
+      return (event.type == 'press' or event.type == 'repeat') and event.button == mod_button and
+             event.alt == alt and event.ctrl == ctrl and event.shift == shift or continue(self, event)
+    end
+  end
 end
 
 function Action:is_activated_by_event(event)

@@ -344,7 +344,7 @@ function FileChooser.new(path)
     ),
     Action.new_simple(
       'select_first',
-      'Selects the first completion',
+      'Select the first completion',
       nil,
       'ctrl+home',
       function(action, event)
@@ -354,7 +354,7 @@ function FileChooser.new(path)
     ),
     Action.new_simple(
       'select_last',
-      'Selects the last completion',
+      'Select the last completion',
       nil,
       'ctrl+end',
       function(action, event)
@@ -374,12 +374,12 @@ function FileChooser.new(path)
       end
     ),
     Action.new_simple(
-      'goto_parent_dir',
+      'enter_parent_dir',
       'Go to parent directory',
       "Replaces the entered path with its parent directory's path.",
       'shift+tab',
       function(action, event)
-        self:goto_parent_dir()
+        self:enter_parent_dir()
         self:request_draw()
       end
     )
@@ -541,7 +541,7 @@ function FileChooser:apply_selected_completion()
   return true
 end
 
-function FileChooser:goto_parent_dir() -- HACK: rename!
+function FileChooser:enter_parent_dir()
   self.path_field:update_history_before_edit()
   local dir = GLib.path_get_dirname(self.path_field.text .. 'x')
   if GLib.path_get_basename(dir) == '..' or GLib.path_get_dirname(dir) == dir then
@@ -665,7 +665,7 @@ function FileChooser:prev_completion(node)
   end
 end
 
-function FileChooser:completions_prefix() -- HACK: rename?
+function FileChooser:completions_prefix()
   return GLib.path_get_basename(self.path_field.text .. 'x'):sub(1, -2)
 end
 

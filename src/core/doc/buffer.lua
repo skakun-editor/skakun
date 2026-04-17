@@ -82,8 +82,6 @@ function DocBuffer:copy(idx, src, from, to)
   self:record_edit(idx, 0, to - from + 1)
 end
 
--- TODO: move idxs inside edits to their one-past-the-end
-
 function DocBuffer:record_edit(idx, old_len, new_len)
   local diff = self.parent_diff
   if #diff == 0 then
@@ -191,24 +189,18 @@ function DocBuffer:carry_idx_over(idx, idx_buffer)
       return
     end
     if prev == buffer.parent then
-      local diff = buffer.parent_diff
-      local edit = utils.binary_search_first(diff, function(edit)
-        return idx < edit.old_idx + edit.old_len
+      local edit = utils.binary_search_last(buffer.parent_diff, function(edit)
+        return edit.old_idx <= idx
       end)
       if edit then
-        idx = math.min(idx, edit.old_idx) + (edit.new_idx - edit.old_idx)
-      else
-        idx = idx + (diff[#diff].new_idx + diff[#diff].new_len - diff[#diff].old_idx - diff[#diff].old_len)
+        idx = math.max(idx, edit.old_idx + edit.old_len) + (edit.new_idx + edit.new_len - edit.old_idx - edit.old_len)
       end
     else
-      local diff = prev.parent_diff
-      local edit = utils.binary_search_first(diff, function(edit)
-        return idx < edit.new_idx + edit.new_len
+      local edit = utils.binary_search_last(prev.parent_diff, function(edit)
+        return edit.new_idx <= idx
       end)
       if edit then
-        idx = math.min(idx, edit.new_idx) - (edit.new_idx - edit.old_idx)
-      else
-        idx = idx - (diff[#diff].new_idx + diff[#diff].new_len - diff[#diff].old_idx - diff[#diff].old_len)
+        idx = math.max(idx, edit.new_idx + edit.new_len) - (edit.new_idx + edit.new_len - edit.old_idx - edit.old_len)
       end
     end
     prev = buffer

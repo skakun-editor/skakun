@@ -24,7 +24,10 @@ const c = @cImport({
   @cInclude("linux/vt.h");
   @cInclude("string.h");
 });
-const tty = @import("../system.zig");
+const system = @import("core.tty.system");
+const assert = std.debug.assert;
+
+var tty: *system.Interface = undefined;
 
 fn ioctl(request: anytype, arg: anytype) c_int {
   return std.c.ioctl(tty.file.handle, request, arg);
@@ -166,7 +169,13 @@ const funcs = blk: {
   };
 };
 
-pub fn luaopen(vm: *lua.Lua) i32 {
+fn luaopen(vm: *lua.Lua) i32 {
+  assert(vm.getGlobal("require") catch unreachable == .function);
+  _ = vm.pushString("core.tty.system");
+  vm.call(.{ .args = 1, .results = 1 });
+  assert(vm.getField(-1, "interface") == .light_userdata);
+  tty = vm.toUserdata(system.Interface, -1) catch unreachable;
+
   vm.newLib(&funcs);
 
   const keycodes = [_]struct {comptime_int, []const u8}{
@@ -378,10 +387,12 @@ pub fn luaopen(vm: *lua.Lua) i32 {
 
   const kt = [_]struct {[:0]const u8, comptime_int}{
     .{"LATIN", c.KT_LATIN},
+    .{"FN", c.KT_FN},
     .{"SPEC", c.KT_SPEC},
     .{"PAD", c.KT_PAD},
     .{"DEAD", c.KT_DEAD},
     .{"CONS", c.KT_CONS},
+    .{"CUR", c.KT_CUR},
     .{"SHIFT", c.KT_SHIFT},
     .{"META", c.KT_META},
     .{"ASCII", c.KT_ASCII},
@@ -398,4 +409,8 @@ pub fn luaopen(vm: *lua.Lua) i32 {
   vm.setField(-2, "KT");
 
   return 1;
+}
+
+comptime {
+  _ = lua.exportFn("core_tty_linux_system", luaopen);
 }
