@@ -170,11 +170,11 @@ const funcs = blk: {
 };
 
 fn luaopen(vm: *lua.Lua) i32 {
-  assert(vm.getGlobal("require") catch unreachable == .function);
+  _ = vm.getGlobal("require") catch {};
   _ = vm.pushString("core.tty.system");
   vm.call(.{ .args = 1, .results = 1 });
-  assert(vm.getField(-1, "interface") == .light_userdata);
-  tty = vm.toUserdata(system.Interface, -1) catch unreachable;
+  _ = vm.getField(-1, "interface");
+  tty = vm.checkUserdata(*system.Interface, -1, "*core.tty.system.Interface").*;
 
   vm.newLib(&funcs);
 

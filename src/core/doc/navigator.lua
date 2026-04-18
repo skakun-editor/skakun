@@ -19,12 +19,14 @@ local stderr = require('core.stderr')
 local tty    = require('core.tty')
 local utils  = require('core.utils')
 
-local Navigator = {
+-- BUG: there's some nasty corruption bug here that needs to be caught
+
+local Navigator = setmetatable({
   tab_width = 8,
   global_cache_skip = 1e4,
   max_local_cache_size = 1e3,
   local_cache_prune_probability = 0.5,
-}
+}, { __index = require('core.doc._navigator') })
 Navigator.__index = Navigator
 
 function Navigator.new(buffer)
@@ -170,89 +172,6 @@ function Navigator.new(buffer)
   end
 
   return self
-end
-
-function Navigator:locate_byte(byte, ctx)
-  return self:locate(function(loc) return loc.byte - byte end, ctx)
-end
-
-function Navigator:locate_grapheme(grapheme, ctx)
-  return self:locate(function(loc) return loc.grapheme - grapheme end, ctx)
-end
-
-function Navigator:locate_line_col(line, col, ctx)
-  return self:locate(function(loc) return loc.line ~= line and loc.line - line or loc.col - col end, ctx)
-end
-
-function Navigator:locate_line_tab_col(line, tab_col, ctx)
-  return self:locate(function(loc) return loc.line ~= line and loc.line - line or loc.tab_col - tab_col end, ctx)
-end
-
-function Navigator:locate(cmp, ctx)
-  if ctx then
-    assert(cmp(ctx.prev) < 0)
-  else
-    ctx = {}
-    local a = self.local_cache:find_last(function(loc) return cmp(loc) < 0 end)
-    local b = self.global_cache:find_last(function(loc) return cmp(loc) < 0 end)
-    if not b then
-      local first = { byte = 1, grapheme = 1, line = 1, col = 1, tab_col = 1 }
-      return cmp(first) == 0 and first or nil, nil
-    end
-    ctx.curr = utils.copy(a and a.byte > b.byte and a or b)
-    ctx.iter = self.buffer:iter(ctx.curr.byte)
-    ctx.prev = {}
-    ctx.last_global_insert = b.byte
-  end
-
-  local iter = ctx.iter
-  local curr = ctx.curr
-  local prev = ctx.prev
-  local last_global_insert = ctx.last_global_insert
-
-  while cmp(curr) < 0 do
-    local ok, grapheme = pcall(iter.next_grapheme, iter)
-    if not ok then
-      grapheme = '�'
-    elseif not grapheme then
-      break
-    end
-
-    curr, prev = prev, curr
-    curr.byte = prev.byte + iter:last_advance()
-    curr.grapheme = prev.grapheme + 1
-    if grapheme == '\n' then
-      curr.line = prev.line + 1
-      curr.col = 1
-      curr.tab_col = 1
-    elseif grapheme == '\t' then
-      curr.line = prev.line
-      curr.col = prev.col + self.tab_width - (prev.col - 1) % self.tab_width
-      curr.tab_col = prev.tab_col + 1
-    else
-      curr.line = prev.line
-      curr.col = prev.col + tty.width_of(grapheme)
-      curr.tab_col = prev.tab_col
-    end
-
-    if curr.byte - last_global_insert >= self.global_cache_skip then
-      self.global_cache:insert(curr)
-      last_global_insert = curr.byte
-    end
-  end
-
-  if self.local_cache.size + 1 > self.max_local_cache_size then
-    local old_size = self.local_cache.size
-    self.local_cache:prune(self.local_cache_prune_probability)
-    stderr.info(here, 'pruned ', old_size - self.local_cache.size, ' nodes from local cache')
-  end
-  self.local_cache:insert(cmp(curr) < 0 and curr or prev)
-
-  ctx.iter = iter
-  ctx.curr = curr
-  ctx.prev = prev
-  ctx.last_global_insert = last_global_insert
-  return cmp(curr) <= 0 and curr or prev, ctx
 end
 
 -- I did try using a splay tree here but ultimately I had to abandon that idea

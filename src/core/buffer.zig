@@ -740,27 +740,58 @@ pub const Buffer = struct {
     // Deviates from Subsection "U+FFFD Substitution of Maximal Subparts",
     // Chapter 3 only in the handling of truncated overlong encodings and
     // truncated surrogate halves.
-    pub fn next_codepoint(self: *Iterator) error {InvalidUtf8}!?u21 {
-      var buf: [4]u8 = undefined;
+    pub fn next_codepoint(self: *Iterator, buf: *[4]u8) error {InvalidUtf8}!?struct {u21, []u8} {
       buf[0] = self.next() orelse return null;
       self.last_advance = 1;
 
-      const bytec = std.unicode.utf8ByteSequenceLength(buf[0]) catch return error.InvalidUtf8;
+      switch(buf[0]) {
+        0b0000_0000 ... 0b0111_1111 => {
+          return .{buf[0], buf[0 .. 1]};
+        },
+
+        0b1100_0000 ... 0b1101_1111 => {
+          var result: u21 = buf[0] & 0b0001_1111;
+          const bytec = 2;
+          try next_codepoint_loop(self, buf, &result, bytec);
+          if(result < 1 << 7) return next_codepoint_fail(self, bytec);
+          return .{result, buf[0 .. bytec]};
+        },
+
+        0b1110_0000 ... 0b1110_1111 => {
+          var result: u21 = buf[0] & 0b0000_1111;
+          const bytec = 3;
+          try next_codepoint_loop(self, buf, &result, bytec);
+          if(result < 1 << 11 or 0xd800 <= result and result <= 0xdfff) return next_codepoint_fail(self, bytec);
+          return .{result, buf[0 .. bytec]};
+        },
+
+        0b1111_0000 ... 0b1111_0111 => {
+          var result: u21 = buf[0] & 0b0000_0111;
+          const bytec = 4;
+          try next_codepoint_loop(self, buf, &result, bytec);
+          if(result < 1 << 16 or result > 0x10ffff) return next_codepoint_fail(self, bytec);
+          return .{result, buf[0 .. bytec]};
+        },
+
+        else => return error.InvalidUtf8,
+      }
+    }
+    inline fn next_codepoint_loop(self: *Iterator, buf: *[4]u8, result: *u21, comptime bytec: usize) !void {
       for(1 .. bytec) |i| {
         buf[i] = self.next() orelse return error.InvalidUtf8;
-        if(buf[i] & 0b1100_0000 == 0b1000_0000) {
-          self.last_advance += 1;
-        } else {
+        if(buf[i] & 0b1100_0000 != 0b1000_0000) {
           self.rewind(1) catch unreachable;
           return error.InvalidUtf8;
         }
+        result.* <<= 6;
+        result.* |= buf[i] & 0b0011_1111;
+        self.last_advance += 1;
       }
-
-      return std.unicode.utf8Decode(buf[0 .. bytec]) catch {
-        self.rewind(bytec - 1) catch unreachable;
-        self.last_advance = 1;
-        return error.InvalidUtf8;
-      };
+    }
+    inline fn next_codepoint_fail(self: *Iterator, comptime bytec: usize) !void {
+      self.rewind(bytec - 1) catch unreachable;
+      self.last_advance = 1;
+      return error.InvalidUtf8;
     }
 
     // Writing the result into a fixed-size buffer is inherently unsafe
@@ -770,22 +801,22 @@ pub const Buffer = struct {
       const start = dest.items.len;
 
       var buf: [4]u8 = undefined;
-      var last_codepoint = try self.next_codepoint() orelse return null;
-      try dest.appendSlice(buf[0 .. std.unicode.utf8Encode(last_codepoint, &buf) catch unreachable]);
+      var last_codepoint = try self.next_codepoint(&buf) orelse return null;
+      try dest.appendSlice(last_codepoint[1]);
       var last_advance = self.last_advance;
       defer self.last_advance = last_advance;
 
       var state: u16 = 0;
       while(true) {
-        const lookahead = self.next_codepoint() catch {
+        const lookahead = self.next_codepoint(&buf) catch {
           self.rewind(self.last_advance) catch unreachable;
           break;
         } orelse break;
-        if(grapheme.grapheme_is_character_break(last_codepoint, lookahead, &state)) {
+        if(grapheme.grapheme_is_character_break(last_codepoint[0], lookahead[0], &state)) {
           self.rewind(self.last_advance) catch unreachable;
           break;
         }
-        try dest.appendSlice(buf[0 .. std.unicode.utf8Encode(lookahead, &buf) catch unreachable]);
+        try dest.appendSlice(lookahead[1]);
         last_codepoint = lookahead;
         last_advance += self.last_advance;
       }
@@ -1403,8 +1434,14 @@ fn iter_rewind(vm: *lua.Lua) i32 {
 
 fn iter_next_codepoint(vm: *lua.Lua) i32 {
   const self = vm.checkUserdata(Buffer.Iterator, 1, "core.buffer.iter");
-  vm.pushAny(self.next_codepoint() catch |err| raise_err(vm, err, null)) catch unreachable;
-  return 1;
+  var buf: [4]u8 = undefined;
+  if(self.next_codepoint(&buf) catch |err| raise_err(vm, err, null)) |result| {
+    vm.pushAny(result[0]) catch unreachable;
+    _ = vm.pushString(result[1]);
+    return 2;
+  } else {
+    return 0;
+  }
 }
 
 fn iter_next_grapheme(vm: *lua.Lua) i32 {

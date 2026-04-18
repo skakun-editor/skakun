@@ -39,6 +39,8 @@ pub const Interface = struct {
   writer: File.Writer = undefined,
 };
 
+pub const WidthOfFn = *const @TypeOf(width_of_ptr);
+
 var tty: Interface = .{};
 var reader_buf: [4096]u8 = undefined;
 // The buffer should be big enough to hold the entire screen in order to prevent
@@ -147,7 +149,10 @@ fn enable_raw_mode(vm: *lua.Lua) i32 {
   c.cfmakeraw(@ptrCast(&termios));
   termios.cc[@intFromEnum(posix.V.MIN)] = 0;
   termios.cc[@intFromEnum(posix.V.TIME)] = 0;
-  posix.tcsetattr(tty.file.handle, .FLUSH, termios) catch |err| vm.raiseErrorStr("failed to set raw termios: %s", .{@errorName(err).ptr});
+  posix.tcsetattr(tty.file.handle, .FLUSH, termios) catch |err| {
+    original_termios = null;
+    vm.raiseErrorStr("failed to set raw termios: %s", .{@errorName(err).ptr});
+  };
 
   return 0;
 }
@@ -210,10 +215,13 @@ fn get_size(vm: *lua.Lua) i32 {
 }
 
 fn width_of(vm: *lua.Lua) !i32 {
+  vm.pushAny(try width_of_ptr(vm.checkString(1))) catch unreachable;
+  return 1;
+}
+
+fn width_of_ptr(string: []const u8) !usize {
   var result: usize = 0;
-  var iter = (try std.unicode.Utf8View.init(vm.checkString(1))).iterator();
-  // Open sesame! (This was tricky to find.)
-  _ = std.c.setlocale(std.c.LC.CTYPE, "");
+  var iter = (try std.unicode.Utf8View.init(string)).iterator();
   while(iter.nextCodepoint()) |x| {
     const addend = c.wcwidth(x);
     if(addend < 0) {
@@ -222,8 +230,7 @@ fn width_of(vm: *lua.Lua) !i32 {
       result += @intCast(addend);
     }
   }
-  vm.pushInteger(@intCast(result));
-  return 1;
+  return result;
 }
 
 fn getflag(vm: *lua.Lua) i32 {
@@ -306,10 +313,23 @@ const funcs = blk: {
 };
 
 fn luaopen(vm: *lua.Lua) i32 {
+  // Open sesame! (This was tricky to find.) This magically unborks wcwidth.
+  // It's also quite slow.
+  _ = std.c.setlocale(std.c.LC.CTYPE, "");
+
   vm.newLib(&funcs);
 
-  vm.pushLightUserdata(&tty);
+  vm.newMetatable("*core.tty.system.Interface") catch unreachable;
+  vm.pop(1);
+  vm.newUserdata(*Interface, 1).* = &tty;
+  vm.setMetatableRegistry("*core.tty.system.Interface");
   vm.setField(-2, "interface");
+
+  vm.newMetatable("core.tty.system.WidthOfFn") catch unreachable;
+  vm.pop(1);
+  vm.newUserdata(WidthOfFn, 1).* = &width_of_ptr;
+  vm.setMetatableRegistry("core.tty.system.WidthOfFn");
+  vm.setField(-2, "width_of_ptr");
 
   return 1;
 }

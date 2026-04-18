@@ -6,6 +6,8 @@ var optimize: std.builtin.OptimizeMode = undefined;
 
 var zlua: *std.Build.Dependency = undefined;
 
+var lua_modules: std.StringHashMap(*std.Build.Step.Compile) = undefined;
+
 pub fn build(_b: *std.Build) void {
   b = _b;
   target = b.standardTargetOptions(.{});
@@ -13,6 +15,8 @@ pub fn build(_b: *std.Build) void {
 
   const dep_opts = .{ .target = target, .optimize = optimize };
   zlua = b.dependency("zlua", dep_opts);
+
+  lua_modules = .init(b.allocator);
 
   const exe = b.addExecutable(.{
     .name = "skak",
@@ -50,14 +54,14 @@ pub fn build(_b: *std.Build) void {
       });
       gen.addCSourceFiles(.{
         .root = dep.path("gen"),
-        .files = &.{std.mem.concat(b.allocator, u8, &.{name, ".c"}) catch @panic("OOM"), "util.c"},
+        .files = &.{name ++ ".c", "util.c"},
       });
       const run = b.addRunArtifact(gen);
       run.setCwd(dep.path(""));
       run.captured_stdout = b.allocator.create(std.Build.Step.Run.Output) catch @panic("OOM");
       run.captured_stdout.?.* = .{
         .prefix = "",
-        .basename = std.mem.concat(b.allocator, u8, &.{"gen/", name, ".h"}) catch @panic("OOM"),
+        .basename = "gen/" ++ name ++ ".h",
         .generated_file = .{ .step = &run.step },
       };
       libgrapheme.addIncludePath(.{
@@ -87,6 +91,7 @@ pub fn build(_b: *std.Build) void {
   add_lua_module("core.enchant", &.{}).linkSystemLibrary("enchant-2");
   add_lua_module("core.grapheme", &.{}).linkLibrary(libgrapheme);
   add_lua_module("core.tty.system", &.{}).linkSystemLibrary("tinfo");
+  _ = add_lua_module("core.doc._navigator", &.{"core.buffer", "core.tty.system"});
   if(target.result.os.tag == .linux) {
     _ = add_lua_module("core.tty.linux.system", &.{"core.tty.system"});
   } else if(target.result.os.tag == .windows) {
@@ -256,26 +261,23 @@ pub fn build(_b: *std.Build) void {
   run_step.dependOn(&run.step);
 }
 
-fn add_lua_module(name: []const u8, imports: []const []const u8) *std.Build.Step.Compile {
+fn add_lua_module(comptime name: []const u8, imports: []const []const u8) *std.Build.Step.Compile {
+  comptime var name_with_slashes: [name.len]u8 = undefined;
+  comptime _ = std.mem.replace(u8, name, ".", "/", &name_with_slashes);
   const lib = b.addLibrary(.{
     .linkage = .dynamic,
     .name = name,
     .root_module = b.createModule(.{
-      .root_source_file = b.path(std.mem.concat(b.allocator, u8, &.{"src/", std.mem.replaceOwned(u8, b.allocator, name, ".", "/") catch @panic("OOM"), ".zig"}) catch @panic("OOM")),
+      .root_source_file = b.path("src/" ++ name_with_slashes ++ ".zig"),
       .target = target,
       .optimize = optimize,
     }),
   });
   lib.root_module.addImport("zlua", zlua.module("zlua"));
   for(imports) |subname| {
-    lib.root_module.addAnonymousImport(subname, .{
-      .root_source_file = b.path(std.mem.concat(b.allocator, u8, &.{"src/", std.mem.replaceOwned(u8, b.allocator, subname, ".", "/") catch @panic("OOM"), ".zig"}) catch @panic("OOM")),
-      .target = target,
-      .optimize = optimize,
-    });
+    lib.root_module.addImport(subname, lua_modules.get(subname).?.root_module);
   }
-  b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{
-    .dest_sub_path = std.mem.concat(b.allocator, u8, &.{std.mem.replaceOwned(u8, b.allocator, name, ".", "/") catch @panic("OOM"), ".so"}) catch @panic("OOM")
-  }).step);
+  b.getInstallStep().dependOn(&b.addInstallArtifact(lib, .{ .dest_sub_path = name_with_slashes ++ ".so" }).step);
+  lua_modules.putNoClobber(name, lib) catch @panic("OOM");
   return lib;
 }

@@ -24,10 +24,14 @@ fn read(vm: *lua.Lua) i32 {
   return 1;
 }
 
-export fn luaopen_core_utils_timer(vm: *lua.Lua) i32 {
+fn luaopen(vm: *lua.Lua) !i32 {
   if(timer == null) {
-    timer = @TypeOf(timer.?).start() catch unreachable;
+    timer = try @TypeOf(timer.?).start();
   }
   vm.pushFunction(lua.wrap(read));
   return 1;
+}
+
+comptime {
+  _ = lua.exportFn("core_utils_timer", luaopen);
 }
