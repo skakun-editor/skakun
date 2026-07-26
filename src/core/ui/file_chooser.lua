@@ -15,7 +15,6 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local here = ...
-local grapheme   = require('core.grapheme')
 local stderr     = require('core.stderr')
 local tty        = require('core.tty')
 local ui         = require('core.ui')
@@ -35,11 +34,10 @@ local FileChooser = setmetatable({
 
   scroll_speed = 3,
 
-  faces = { -- HACK: are you sure about these?
+  faces = {
     completion = {},
-    completion_invalid = { foreground = 'red' },
     selected_completion = { foreground = 'black', background = 'white' },
-    selected_completion_invalid = { foreground = 'red', background = 'white' },
+    invalid = { foreground = 'black', background = 'red' },
   },
 
   -- These icon names originate from: https://specifications.freedesktop.org/icon-naming/latest/#mimetypes
@@ -434,42 +432,18 @@ function FileChooser:draw()
   local y = self.y + 1
 
   for _, file_info in ipairs(visible_completions) do
-    local x = self.x
+    local face = file_info == self:selected_completion_node().value and self.faces.selected_completion or self.faces.completion
+    local x = ui.draw_text(
+      self:label_for_completion(file_info),
+      self.x, y,
+      self.width,
+      0,
+      face,
+      self.faces.invalid
+    )
     tty.move_to(x, y)
-
-    local normal_face, invalid_face = self.faces.completion, self.faces.completion_invalid
-    if file_info == self:selected_completion_node().value then
-      normal_face = self.faces.selected_completion
-      invalid_face = self.faces.selected_completion_invalid
-    end
-
-    for _, grapheme in grapheme.characters(self:label_for_completion(file_info)) do
-      if not utf8.len(grapheme) then
-        grapheme = '�'
-        tty.set_face(invalid_face)
-      elseif ui.ctrl_pics[grapheme] then
-        grapheme = ui.ctrl_pics[grapheme]
-        tty.set_face(invalid_face)
-      else
-        tty.set_face(normal_face)
-      end
-
-      local width = tty.width_of(grapheme)
-      if x > self.x + self.width then break end
-      if x + width > self.x + self.width then
-        grapheme = (' '):rep(self.x + self.width - x)
-      end
-      tty.write(grapheme)
-      x = x + width
-    end
-
-    tty.set_face(normal_face)
+    tty.set_face(face)
     tty.write((' '):rep(self.x + self.width - x))
-    if x > self.x + self.width then
-      tty.move_to(self.x + self.width - 1, y)
-      tty.write('…')
-    end
-
     y = y + 1
   end
 
@@ -505,6 +479,12 @@ function FileChooser:icon_for_file(file_info)
   result = self.file_symbolic_icons[mime] or result
   result = self.file_logo_icons[mime] or result
   return nerd_fonts.icons[result] or ' '
+end
+
+function FileChooser:children()
+  return coroutine.wrap(function()
+    coroutine.yield(self.path_field)
+  end)
 end
 
 function FileChooser:move_completion_selection_up(rowc)
@@ -552,16 +532,6 @@ function FileChooser:enter_parent_dir()
   self.path_field.cursor = #self.path_field.text + 1
   self.path_field:update_history_after_edit()
   self.path_field:adjust_view_to_contain_idx(self.path_field.cursor)
-end
-
-function FileChooser:idle()
-  self.path_field:idle()
-end
-
-function FileChooser:children()
-  return coroutine.wrap(function()
-    coroutine.yield(1, self.path_field)
-  end)
 end
 
 function FileChooser:refresh_completions()

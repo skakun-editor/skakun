@@ -89,7 +89,7 @@ fn locate(vm: *lua.Lua, cmp: anytype, cmp_args: anytype) !i32 {
   var ctx_is_ok = false;
   if(vm.isNoneOrNil(2)) {
     vm.setTop(1);
-    ctx = vm.newUserdata(LocateCtx, 1);
+    ctx = vm.newUserdata(LocateCtx, 0);
     vm.setMetatableRegistry("core.doc._navigator.LocateCtx");
   } else {
     ctx = vm.checkUserdata(LocateCtx, 2, "core.doc._navigator.LocateCtx");

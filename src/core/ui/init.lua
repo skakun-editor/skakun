@@ -15,14 +15,16 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local here = ...
-local stderr = require('core.stderr')
-local tty    = require('core.tty')
-local utils  = require('core.utils')
+local grapheme = require('core.grapheme')
+local stderr   = require('core.stderr')
+local tty      = require('core.tty')
+local utils    = require('core.utils')
 
 -- IDEA: styling as code, which would solve the issues of:
 --       1. how to dim the interface when a popup is overlaid on top of it
 --       2. generic style attributes removing the need to set them in every single widget's prototype
 --       3. assigning different styles to a widget depending on whether it's in a popup or somewhere else
+-- TODO: proper focus state signalling for all widgets
 
 local ui = {
   is_running = true,
@@ -56,7 +58,13 @@ function ui.run(root)
     old_width = width
     old_height = height
 
-    root:set_bounds(1, 1, width, height)
+    xpcall(
+      root.set_bounds,
+      function(err)
+        stderr.error(here, debug.traceback(err, 2))
+      end,
+      root, 1, 1, width, height
+    )
 
     if root.has_requested_draw then
       should_redraw = true
@@ -68,7 +76,13 @@ function ui.run(root)
       local start = utils.timer()
       tty.sync_begin()
 
-      root:draw()
+      xpcall(
+        root.draw,
+        function(err)
+          stderr.error(here, debug.traceback(err, 2))
+        end,
+        root
+      )
 
       tty.sync_end()
       tty.flush()
@@ -79,12 +93,24 @@ function ui.run(root)
       end
     end
 
-    root:idle()
+    xpcall(
+      root.idle,
+      function(err)
+        stderr.error(here, debug.traceback(err, 2))
+      end,
+      root
+    )
 
     tty.wait_for_read(ui.idle_interval)
     for _, event in ipairs(tty.read_events()) do
       local start = utils.timer()
-      root:handle_event(event)
+      xpcall(
+        root.handle_event,
+        function(err)
+          stderr.error(here, debug.traceback(err, 2))
+        end,
+        root, event
+      )
       local micros = math.floor(1e6 * (utils.timer() - start))
       if micros >= 1000 then
         stderr.warn(here, 'slow event took ', micros, 'µs')
@@ -95,6 +121,79 @@ end
 
 function ui.stop()
   ui.is_running = false
+end
+
+function ui.draw_text(text, x, y, max_width, scroll, face, invalid_face)
+  if max_width <= 0 or #text == 0 then
+    return x, scroll
+  end
+
+  local written = 0
+  tty.move_to(x, y)
+
+  if scroll < 0 then
+    written = math.min(max_width, -scroll)
+    tty.set_face(face)
+    tty.write((' '):rep(written))
+  end
+
+  local has_underflow, has_overflow = scroll > 0, false
+
+  for _, grapheme in grapheme.characters(text) do
+    local is_invalid = false
+    if not utf8.len(grapheme) then
+      grapheme = '�'
+      is_invalid = true
+    elseif ui.ctrl_pics[grapheme] then
+      grapheme = ui.ctrl_pics[grapheme]
+      is_invalid = true
+    end
+
+    local grapheme_width = tty.width_of(grapheme)
+    scroll = scroll - grapheme_width
+    if written >= max_width then
+      has_overflow = true
+    elseif scroll < 0 then
+      if -scroll > max_width then
+        grapheme = (' '):rep(max_width + scroll)
+        written = written + max_width + scroll
+        has_overflow = true
+      elseif -scroll < grapheme_width then
+        grapheme = (' '):rep(-scroll)
+        written = written - scroll
+      else
+        written = written + grapheme_width
+      end
+      tty.set_face(is_invalid and invalid_face or face)
+      tty.write(grapheme)
+    end
+  end
+
+  if has_underflow or has_overflow then
+    tty.set_face(face)
+end
+
+  if has_underflow then
+    tty.move_to(x, y)
+    tty.write('…')
+  end
+
+  if has_overflow then
+    tty.move_to(x + max_width - 1, y)
+    tty.write('…')
+  elseif has_underflow then
+    tty.move_to(x + written, y)
+  end
+
+  return x + written, scroll + written
+end
+
+function ui.text_width(text)
+  local result = 0
+  for _, grapheme in grapheme.characters(text) do
+    result = result + tty.width_of(not utf8.len(grapheme) and '�' or ui.ctrl_pics[grapheme] or grapheme)
+  end
+  return result
 end
 
 return ui

@@ -321,13 +321,13 @@ fn luaopen(vm: *lua.Lua) i32 {
 
   vm.newMetatable("*core.tty.system.Interface") catch unreachable;
   vm.pop(1);
-  vm.newUserdata(*Interface, 1).* = &tty;
+  vm.newUserdata(*Interface, 0).* = &tty;
   vm.setMetatableRegistry("*core.tty.system.Interface");
   vm.setField(-2, "interface");
 
   vm.newMetatable("core.tty.system.WidthOfFn") catch unreachable;
   vm.pop(1);
-  vm.newUserdata(WidthOfFn, 1).* = &width_of_ptr;
+  vm.newUserdata(WidthOfFn, 0).* = &width_of_ptr;
   vm.setMetatableRegistry("core.tty.system.WidthOfFn");
   vm.setField(-2, "width_of_ptr");
 

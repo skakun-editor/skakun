@@ -17,9 +17,12 @@
 local SyntaxHighlighter = require('core.doc.syntax_highlighter')
 local tty               = require('core.tty')
 local DocView           = require('core.ui.doc_view')
+local SplitView         = require('core.ui.split_view')
 local utils             = require('core.utils')
 local rgb = tty.Rgb.from_hex
 local hsv = tty.Rgb.from_hsv
+
+-- HACK: i broke this when making splits and tabs. fix it with a common class
 
 local fruitmash_light = {
   themer = utils.Themer.new(),
@@ -34,7 +37,8 @@ function fruitmash_light.apply()
     DocView.colors, 'cursor', theme.colors.foreground,
     DocView.colors, 'cursor_foreground', theme.colors.background,
     DocView.colors, 'selection', theme.colors.selection,
-    DocView.colors, 'misspelling', theme.colors.error
+    DocView.colors, 'misspelling', theme.colors.error,
+    SplitView.faces, 'separator', theme.faces.border
   )
 end
 
@@ -45,6 +49,7 @@ end
 function fruitmash_light.regenerate()
   fruitmash_light.true_color = fruitmash_light.from({
     background = rgb'ffffff',
+    border     = rgb'eeeeee',
     selection  = rgb'eeeeee',
     comment    = rgb'999999',
     self       = rgb'666666',
@@ -62,6 +67,7 @@ function fruitmash_light.regenerate()
   })
   fruitmash_light.ansi = fruitmash_light.from({
     background = 'bright_white',
+    border     = 'white',
     selection  = 'white',
     comment    = 'bright_black',
     self       = 'bright_black',
@@ -81,18 +87,22 @@ end
 
 function fruitmash_light.from(colors)
   local faces = {
-    normal             = { foreground = colors.foreground,  background = colors.background },
-    invalid            = { foreground = colors.background,  background = colors.error      },
-    comment            = { foreground = colors.comment,     background = colors.background, italic = true },
-    punctuation        = { foreground = colors.comment,     background = colors.background },
-    constant           = { foreground = colors.blue,        background = colors.background },
-    string             = { foreground = colors.yellow,      background = colors.background },
-    keyword            = { foreground = colors.red,         background = colors.background },
-    declaration        = { foreground = colors.blue,        background = colors.background },
-    function_parameter = { foreground = colors.orange,      background = colors.background, italic = true },
-    function_          = { foreground = colors.green,       background = colors.background },
-    type               = { foreground = colors.cyan,        background = colors.background },
-    builtin_variable   = { foreground = colors.self,        background = colors.background, italic = true },
+    normal             = { foreground = colors.foreground,  background = colors.background           },
+    normal_unfocused   = { foreground = colors.foreground,  background = colors.background_unfocused },
+    raised             = { foreground = colors.foreground,  background = colors.background_raised    },
+    cursor             = { foreground = colors.background,  background = colors.foreground           },
+    invalid            = { foreground = colors.background,  background = colors.error                },
+
+    comment            = { foreground = colors.comment,     background = colors.background,          italic = true },
+    punctuation        = { foreground = colors.comment,     background = colors.background           },
+    constant           = { foreground = colors.blue,        background = colors.background           },
+    string             = { foreground = colors.yellow,      background = colors.background           },
+    keyword            = { foreground = colors.red,         background = colors.background           },
+    declaration        = { foreground = colors.blue,        background = colors.background           },
+    function_parameter = { foreground = colors.orange,      background = colors.background,          italic = true },
+    function_          = { foreground = colors.green,       background = colors.background           },
+    type               = { foreground = colors.cyan,        background = colors.background           },
+    builtin_variable   = { foreground = colors.self,        background = colors.background,          italic = true },
   }
   faces.syntax_highlights = SyntaxHighlighter.apply_fallbacks({
     comment                    = faces.comment,

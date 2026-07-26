@@ -10,6 +10,8 @@ local Action            = require('core.ui.action')
 local ActionPrompt      = require('core.ui.action_prompt')
 local DocView           = require('core.ui.doc_view')
 local nerd_fonts        = require('core.ui.nerd_fonts')
+local SplitView         = require('core.ui.split_view')
+local TabView           = require('core.ui.tab_view')
 local Widget            = require('core.ui.widget')
 local utils             = require('core.utils')
 local tty_test          = require('misc.tty_test')
@@ -26,6 +28,9 @@ local gruvbox_light     = require('theme.gruvbox_light')
 -- HACK: update docs when you're finished lol
 -- TODO: autosave when idle
 -- TODO: do we really need descriptions for all ui actions?
+-- TODO: opening files and having multiple open files at once and having multiple views into one file
+-- BUG: use-after-free race condition in finishget in multithreaded lua
+-- TODO: dialog for selecting theme
 
 core.should_forward_stderr_on_exit = false
 utils.lock_globals()
@@ -64,13 +69,27 @@ end, {
 local root = Widget.new()
 root.name = 'Root'
 
-local doc_view = DocView.new(core.args[2] and Doc.open(core.args[2]) or Doc.new())
-table.insert(core.cleanups, function() doc_view:stop_background_tasks() end)
-doc_view.parent = root
+local tab_view = TabView.new()
+root.child = tab_view
+tab_view.parent = root
+
+if core.args[2] then
+  local doc_view = DocView.new(Doc.open(core.args[2]))
+  table.insert(core.cleanups, function() doc_view:stop_background_tasks() end)
+  tab_view:add_tab(doc_view)
+end
+
+for file in io.popen(('find %q/../lib/skakun/core/ui/ -type f'):format(core.exe_dir)):lines() do
+  local doc = DocView.new(Doc.open(file))
+  table.insert(core.cleanups, function()
+    doc:stop_background_tasks()
+  end)
+  tab_view:add_tab(doc)
+end
 
 local action_prompt = nil
 
-local theme = dracula
+local theme = fruitmash_dark
 theme.apply()
 
 local mouse_x, mouse_y = 1, 1
@@ -79,10 +98,10 @@ function root:draw()
   Widget.draw(self)
 
   tty.set_cursor(false)
-  tty.set_window_background(doc_view.faces.normal.background)
+  -- tty.set_window_background(doc_view.faces.normal.background)
 
-  doc_view:set_bounds(self:drawn_bounds())
-  doc_view:draw()
+  self.child:set_bounds(self:drawn_bounds())
+  self.child:draw()
 
   if action_prompt then
     local width, height = action_prompt:natural_size()
@@ -166,6 +185,49 @@ root:add_actions(
       ui.stop()
     end
   ),
+  Action.new_simple(
+    'action_prompt',
+    'Toggle action prompt',
+    'Opens or closes a list of actions you can perform in the UI.',
+    'f1',
+    function(action, event)
+      if action_prompt then
+        action_prompt.parent = nil
+        action_prompt = nil
+      else
+        action_prompt = ActionPrompt.new()
+        action_prompt.parent = root
+        action_prompt:add_items_from_widget(root, true)
+      end
+      root:request_draw()
+    end
+  ),
+  Action.new_simple(
+    'split',
+    'Split view',
+    nil,
+    'ctrl+backslash',
+    function(action, event)
+      local split_view = SplitView.new()
+      root.child.parent = nil
+      split_view:set_first(root.child)
+      root.child = split_view
+      root.child.parent = root
+      root:request_draw()
+    end
+  ),
+  Action.new_simple(
+    'merge',
+    'Merge split view',
+    nil,
+    'ctrl+w',
+    function(action, event)
+      if getmetatable(root.child) ~= SplitView then return end
+      root.child = root.child:merge()
+      root.child.parent = root
+      root:request_draw()
+    end
+  ),
   Action.new(
     'set_theme',
     'Set UI theme',
@@ -186,24 +248,9 @@ root:add_actions(
         theme.apply()
       end
       root:request_draw()
-    end
-  ),
-  Action.new_simple(
-    'action_prompt',
-    'Toggle action prompt',
-    'Opens or closes a list of actions you can perform in the UI.',
-    'f1',
-    function(action, event)
-      if action_prompt then
-        action_prompt.parent = nil
-        action_prompt = nil
-      else
-        action_prompt = ActionPrompt.new()
-        action_prompt.parent = root
-        action_prompt:add_actions_of(root, true)
-      end
-      root:request_draw()
-    end
+    end,
+    true,
+    true
   ),
   Action.new(
     'tty_test',
@@ -214,9 +261,14 @@ root:add_actions(
     function(action, event)
       tty_test()
       root:request_draw()
-    end
+    end,
+    true,
+    true
   )
 )
+for _, i in ipairs({'split', 'merge'}) do
+  root.actions[i].has_precedence_over_children = false
+end
 
 function root:handle_event(event)
   if event.type == 'move' then
@@ -226,21 +278,12 @@ function root:handle_event(event)
   return Widget.handle_event(self, event)
 end
 
-function root:idle()
-  doc_view:idle()
-  if action_prompt then
-    action_prompt:idle()
-  end
-end
-
 function root:children()
   return coroutine.wrap(function()
     if action_prompt then
-      coroutine.yield(1, action_prompt)
-      coroutine.yield(2, doc_view)
-    else
-      coroutine.yield(1, doc_view)
+      coroutine.yield(action_prompt)
     end
+    coroutine.yield(self.child)
   end)
 end
 

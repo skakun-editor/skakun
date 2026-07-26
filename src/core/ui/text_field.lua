@@ -14,9 +14,7 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-local here = ...
 local grapheme = require('core.grapheme')
-local stderr   = require('core.stderr')
 local tty      = require('core.tty')
 local ui       = require('core.ui')
 local Action   = require('core.ui.action')
@@ -25,11 +23,11 @@ local utils    = require('core.utils')
 
 local TextField = setmetatable({
   name = 'Text Field',
-  history_commit_delay = 1,
+  history_commit_delay = 1.0,
   view_containment_margin = 3,
   faces = {
     normal = {},
-    invalid = { foreground = 'red' },
+    invalid = { foreground = 'black', background = 'red' },
     ellipsis = { foreground = 'white' },
   },
   colors = {
@@ -42,6 +40,7 @@ TextField.__index = TextField
 function TextField.new()
   local self = setmetatable(Widget.new(), TextField)
   self.faces = setmetatable({}, { __index = TextField.faces })
+  self.colors = setmetatable({}, { __index = TextField.colors })
 
   self:add_actions(
     Action.new(
@@ -68,7 +67,7 @@ function TextField.new()
         self.cursor = #self.text + 1
         local x = self.drawn.x - self.view_start + 1
         for i, grapheme in grapheme.characters(self.text) do
-          x = x + tty.width_of(utf8.len(grapheme) and grapheme or '�')
+          x = x + tty.width_of(utf8.len(grapheme) and grapheme or '�') -- HACK: ctrl pics
           if event.x < x then
             self.cursor = i
             break
@@ -76,7 +75,9 @@ function TextField.new()
         end
         self:adjust_view_to_contain_idx(self.cursor)
         self:request_draw()
-      end
+      end,
+      true,
+      true
     ),
     Action.new_simple(
       'move_left',
@@ -283,7 +284,9 @@ function TextField.new()
         self:update_history_after_edit()
         self:adjust_view_to_contain_idx(self.cursor)
         self:request_draw()
-      end
+      end,
+      true,
+      true
     )
   )
 

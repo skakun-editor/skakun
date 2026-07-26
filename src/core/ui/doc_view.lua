@@ -32,6 +32,11 @@ local utils             = require('core.utils')
 -- TODO: set native cursor and window title when widget focused
 -- IDEA: highlight suspicious unicode characters, such as variation selectors
 -- BUG: invisible selections in linux console
+-- TODO: (de)indenting multiple lines of code
+-- TODO: commenting multiple lines of code
+-- TODO: jumping to a specific line number
+-- TODO: find and replace using regex
+-- TODO: align cursors to one column
 
 local DocView = setmetatable({
   name = 'Document View',
@@ -40,7 +45,7 @@ local DocView = setmetatable({
   view_containment_margin = 2,
   faces = {
     normal = {},
-    invalid = { foreground = 'red' },
+    invalid = { foreground = 'black', background = 'red' },
     syntax_highlights = {},
   },
   colors = {
@@ -105,8 +110,8 @@ function DocView.new(doc)
       Action.button_symbols.mouse_left,
       function(action, event)
         return event.type == 'press' and event.button == 'mouse_left' and
-              not event.alt and not event.ctrl and not event.shift and
-              utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
+               not event.alt and not event.ctrl and not event.shift and
+               utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
       end,
       function(action, event)
         local cursor = self:buffer_idx_drawn_at(event.x, event.y)
@@ -117,8 +122,11 @@ function DocView.new(doc)
         sel.col_hint = nil
         self:merge_selections_overlapping_with(self.latest_selection_node)
         self.mouse_is_dragging_selection = true
+        self:adjust_view_to_contain_idx(cursor)
         self:request_draw()
-      end
+      end,
+      true,
+      true
     ),
     Action.new(
       'new_cursor_mouse',
@@ -127,8 +135,8 @@ function DocView.new(doc)
       Action.mod_symbols.alt .. Action.button_symbols.mouse_left,
       function(action, event)
         return event.type == 'press' and event.button == 'mouse_left' and
-              event.alt and not event.ctrl and not event.shift and
-              utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
+               event.alt and not event.ctrl and not event.shift and
+               utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
       end,
       function(action, event)
         local cursor = self:buffer_idx_drawn_at(event.x, event.y)
@@ -139,8 +147,11 @@ function DocView.new(doc)
         sel.col_hint = nil
         self:merge_selections_overlapping_with(self.latest_selection_node)
         self.mouse_is_dragging_selection = true
+        self:adjust_view_to_contain_idx(cursor)
         self:request_draw()
-      end
+      end,
+      true,
+      true
     ),
     Action.new(
       'latest_cursor_mouse_select',
@@ -151,7 +162,7 @@ function DocView.new(doc)
         return (event.type == 'press' and event.button == 'mouse_left' and
                 not event.alt and not event.ctrl and event.shift or
                 event.type == 'move' and self.mouse_is_dragging_selection) and
-              utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
+               utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
       end,
       function(action, event)
         local cursor = self:buffer_idx_drawn_at(event.x, event.y)
@@ -161,8 +172,11 @@ function DocView.new(doc)
         sel.col_hint = nil
         self:merge_selections_overlapping_with(self.latest_selection_node)
         self.mouse_is_dragging_selection = true
+        self:adjust_view_to_contain_idx(cursor)
         self:request_draw()
-      end
+      end,
+      true,
+      true
     ),
     Action.new(
       'stop_drag',
@@ -174,7 +188,9 @@ function DocView.new(doc)
       end,
       function(action, event)
         self.mouse_is_dragging_selection = false
-      end
+      end,
+      true,
+      true
     ),
     Action.new_simple(
       'cursors_left',
@@ -525,7 +541,7 @@ function DocView.new(doc)
       nil,
       'Type or paste',
       function(action, event)
-        return event.text
+        return event.text and not event.alt and not event.ctrl
       end,
       function(action, event)
         event.text = event.text:gsub('\r\n', '\n'):gsub('\r', '\n')
@@ -554,7 +570,9 @@ function DocView.new(doc)
         self.selections_set_buffer_log_idx = #self.doc.set_buffer_log
         self:adjust_view_to_contain_selection(self.selections:first().value)
         self:request_draw()
-      end
+      end,
+      true,
+      true
     )
   )
 
@@ -753,9 +771,9 @@ function DocView:adjust_view_to_contain_idx(idx)
   self:sync_view_start()
   local loc = self.doc.buffer.navigator:locate_byte(idx)
   local start = self.view_start
-  local margin = math.min(self.view_containment_margin, (self.width - 1) // 2)
-  start.line = math.max(math.min(start.line, loc.line - margin), loc.line + margin - self.height + 1, 1)
   local margin = math.min(self.view_containment_margin, (self.height - 1) // 2)
+  start.line = math.max(math.min(start.line, loc.line - margin), loc.line + margin - self.height + 1, 1)
+  local margin = math.min(self.view_containment_margin, (self.width - 1) // 2)
   start.col = math.max(math.min(start.col, loc.col - margin), loc.col + margin - self.width + 1, 1)
 end
 
@@ -851,7 +869,7 @@ function DocView:move_cursors_to_line_end(should_curtail_selections)
   assert(self.selections_set_buffer_log_idx == #self.doc.set_buffer_log)
   local nav = self.doc.buffer.navigator
   for _, sel in self.selections:elems() do
-    local cursor = nav:locate_line_col(nav:locate_byte(sel.idx + sel.len).line, math.huge).byte
+    local cursor = nav:locate_line_col(nav:locate_byte(sel.idx + sel.len).line, math.maxinteger).byte
     if should_curtail_selections then
       sel.idx = cursor
       sel.len = 0

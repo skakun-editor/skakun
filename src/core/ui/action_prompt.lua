@@ -15,29 +15,22 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local here = ...
-local grapheme   = require('core.grapheme')
-local stderr     = require('core.stderr')
-local tty        = require('core.tty')
-local ui         = require('core.ui')
-local Action     = require('core.ui.action')
-local TextField  = require('core.ui.text_field')
-local Widget     = require('core.ui.widget')
-local SortedSet  = require('core.utils.sorted_set')
-
--- HACK: fix the name collision of "actions" with Widget properly
+local grapheme  = require('core.grapheme')
+local stderr    = require('core.stderr')
+local tty       = require('core.tty')
+local ui        = require('core.ui')
+local Action    = require('core.ui.action')
+local TextField = require('core.ui.text_field')
+local Widget    = require('core.ui.widget')
 
 local ActionPrompt = setmetatable({
   name = 'Action Prompt',
-
   scroll_speed = 3,
-
-  faces = { -- HACK: are you sure about these?
+  faces = {
     name = {},
-    name_invalid = { foreground = 'red' },
     hint = { foreground = 'bright_black' },
-    hint_invalid = { foreground = 'red' },
     selection = { foreground = 'black', background = 'white' },
-    selection_invalid = { foreground = 'red', background = 'white' },
+    invalid = { foreground = 'black', background = 'red' },
   },
 }, Widget)
 ActionPrompt.__index = ActionPrompt
@@ -53,7 +46,7 @@ function ActionPrompt.new(path)
       'Activates the currently selected action.',
       {'enter', 'kp_enter'},
       function(action, event)
-        self:activate_selected_action()
+        self:activate_selected_item()
       end
     ),
     Action.new_simple(
@@ -62,7 +55,7 @@ function ActionPrompt.new(path)
       'Selects the action directly above the current one, if one exists.',
       'up',
       function(action, event)
-        self:move_action_selection_up(1)
+        self:move_item_selection_up(1)
         self:request_draw()
       end
     ),
@@ -72,7 +65,7 @@ function ActionPrompt.new(path)
       'Selects the action directly below the current one, if one exists.',
       'down',
       function(action, event)
-        self:move_action_selection_down(1)
+        self:move_item_selection_down(1)
         self:request_draw()
       end
     ),
@@ -82,7 +75,7 @@ function ActionPrompt.new(path)
       'Moves the action selection up by one visible page or as far as it is possible.',
       'page_up',
       function(action, event)
-        self:move_action_selection_up(self.height - 1)
+        self:move_item_selection_up(self.height - 1)
         self:request_draw()
       end
     ),
@@ -92,7 +85,7 @@ function ActionPrompt.new(path)
       'Moves the action selection down by one visible page or as far as it is possible.',
       'page_down',
       function(action, event)
-        self:move_action_selection_down(self.height - 1)
+        self:move_item_selection_down(self.height - 1)
         self:request_draw()
       end
     ),
@@ -102,7 +95,7 @@ function ActionPrompt.new(path)
       'Moves the action selection up by the distance appropriate for a mouse scroll.',
       'scroll_up',
       function(action, event)
-        self:move_action_selection_up(self.scroll_speed)
+        self:move_item_selection_up(self.scroll_speed)
         self:request_draw()
       end
     ),
@@ -112,7 +105,7 @@ function ActionPrompt.new(path)
       'Moves the action selection down by the distance appropriate for a mouse scroll.',
       'scroll_down',
       function(action, event)
-        self:move_action_selection_down(self.scroll_speed)
+        self:move_item_selection_down(self.scroll_speed)
         self:request_draw()
       end
     ),
@@ -122,9 +115,9 @@ function ActionPrompt.new(path)
       nil,
       'ctrl+home',
       function(action, event)
-        for i, action in ipairs(self.listed_actions) do
-          if self:should_show_action(action) then
-            self:set_selected_action_idx(i)
+        for i, action in ipairs(self.items) do
+          if self:should_show_item(action) then
+            self:set_selected_item_idx(i)
             break
           end
         end
@@ -137,9 +130,9 @@ function ActionPrompt.new(path)
       nil,
       'ctrl+end',
       function(action, event)
-        for i = #self.listed_actions, 1, -1 do
-          if self:should_show_action(self.listed_actions[i]) then
-            self:set_selected_action_idx(i)
+        for i = #self.items, 1, -1 do
+          if self:should_show_item(self.items[i]) then
+            self:set_selected_item_idx(i)
             break
           end
         end
@@ -153,8 +146,8 @@ function ActionPrompt.new(path)
   self.search_field.name = self.name
   self.search_field.text = path or ''
 
-  self.listed_actions = {}
-  self._selected_action_idx = nil
+  self.items = {}
+  self._selected_item_idx = nil
 
   return self
 end
@@ -166,43 +159,52 @@ function ActionPrompt:draw()
   self.search_field:set_bounds(self.x, self.y, self.width, 1)
   self.search_field:draw()
 
-  local selected_action_idx = self:selected_action_idx()
+  local selected_item_idx = self:selected_item_idx()
 
-  local visible_actions_idxs = {}
-  local i = (selected_action_idx or 1) - 1
-  while self.listed_actions[i] and #visible_actions_idxs < (self.height - 2) // 2 do
-    if self:should_show_action(self.listed_actions[i]) then
-      table.insert(visible_actions_idxs, 1, i)
+  local visible_items_idxs = {}
+  local i = (selected_item_idx or 1) - 1
+  while self.items[i] and #visible_items_idxs < (self.height - 2) // 2 do
+    if self:should_show_item(self.items[i]) then
+      table.insert(visible_items_idxs, 1, i)
     end
     i = i - 1
   end
-  i = selected_action_idx or 1
-  while self.listed_actions[i] and #visible_actions_idxs < self.height - 1 do
-    if self:should_show_action(self.listed_actions[i]) then
-      table.insert(visible_actions_idxs, i)
+  i = selected_item_idx or 1
+  while self.items[i] and #visible_items_idxs < self.height - 1 do
+    if self:should_show_item(self.items[i]) then
+      table.insert(visible_items_idxs, i)
     end
     i = i + 1
   end
 
   local y = self.y + 1
 
-  for _, action_idx in ipairs(visible_actions_idxs) do
-    local action = self.listed_actions[action_idx]
+  for _, item_idx in ipairs(visible_items_idxs) do
+    local action = self.items[item_idx]
 
     local hint = action.activation_hint or ''
-    local hint_width = math.min(self.width, self:width_of_text(hint))
-    self:draw_text(
-      action.widget.name .. ': ' .. action.name,
-      self.x, y, self.width - hint_width,
-      action_idx == selected_action_idx and self.faces.selection or self.faces.name,
-      action_idx == selected_action_idx and self.faces.selection_invalid or self.faces.name_invalid
-    )
-    self:draw_text(
+    local hint_width = math.min(self.width, ui.text_width(hint))
+
+    ui.draw_text(
       hint,
-      self.x + self.width - hint_width, y, hint_width,
-      action_idx == selected_action_idx and self.faces.selection or self.faces.hint,
-      action_idx == selected_action_idx and self.faces.selection_invalid or self.faces.hint_invalid
+      self.x + self.width - hint_width, y,
+      hint_width,
+      0,
+      item_idx == selected_item_idx and self.faces.selection or self.faces.hint,
+      self.faces.invalid
     )
+
+    local x = ui.draw_text(
+      action.widget.name .. ': ' .. action.name,
+      self.x, y,
+      self.width - hint_width,
+      0,
+      item_idx == selected_item_idx and self.faces.selection or self.faces.name,
+      self.faces.invalid
+    )
+    tty.move_to(x, y)
+    tty.set_face(item_idx == selected_item_idx and self.faces.selection or self.faces.name)
+    tty.write((' '):rep(self.x + self.width - hint_width - x))
 
     y = y + 1
   end
@@ -215,76 +217,36 @@ function ActionPrompt:draw()
   end
 end
 
-function ActionPrompt:draw_text(text, x, y, width, face, invalid_face)
-  local written = 0
-  tty.move_to(x, y)
-
-  for _, grapheme in grapheme.characters(text) do
-    if not utf8.len(grapheme) then
-      grapheme = '�'
-      tty.set_face(invalid_face)
-    elseif ui.ctrl_pics[grapheme] then
-      grapheme = ui.ctrl_pics[grapheme]
-      tty.set_face(invalid_face)
-    else
-      tty.set_face(face)
-    end
-
-    local grapheme_width = tty.width_of(grapheme)
-    if written > width then break end
-    if written + grapheme_width > width then
-      grapheme = (' '):rep(width - written)
-    end
-    tty.write(grapheme)
-    written = written + grapheme_width
-  end
-
-  tty.set_face(face)
-  tty.write((' '):rep(width - written))
-  if written > width then
-    tty.move_to(x + width - 1, y)
-    tty.write('…')
-  end
-end
-
-function ActionPrompt:width_of_text(text)
-  local result = 0
-  for _, grapheme in grapheme.characters(text) do
-    result = result + tty.width_of(not utf8.len(grapheme) and '�' or ui.ctrl_pics[grapheme] or grapheme)
-  end
-  return result
-end
-
-function ActionPrompt:move_action_selection_up(rowc)
-  local i = self:selected_action_idx()
+function ActionPrompt:move_item_selection_up(rowc)
+  local i = self:selected_item_idx()
   if not i then return end
   local new_idx = i
-  while self.listed_actions[i - 1] and rowc > 0 do
+  while self.items[i - 1] and rowc > 0 do
     i = i - 1
-    if self:should_show_action(self.listed_actions[i]) then
+    if self:should_show_item(self.items[i]) then
       new_idx = i
       rowc = rowc - 1
     end
   end
-  self:set_selected_action_idx(new_idx)
+  self:set_selected_item_idx(new_idx)
 end
 
-function ActionPrompt:move_action_selection_down(rowc)
-  local i = self:selected_action_idx()
+function ActionPrompt:move_item_selection_down(rowc)
+  local i = self:selected_item_idx()
   if not i then return end
   local new_idx = i
-  while self.listed_actions[i + 1] and rowc > 0 do
+  while self.items[i + 1] and rowc > 0 do
     i = i + 1
-    if self:should_show_action(self.listed_actions[i]) then
+    if self:should_show_item(self.items[i]) then
       new_idx = i
       rowc = rowc - 1
     end
   end
-  self:set_selected_action_idx(new_idx)
+  self:set_selected_item_idx(new_idx)
 end
 
-function ActionPrompt:activate_selected_action()
-  local action = self.listed_actions[self:selected_action_idx()]
+function ActionPrompt:activate_selected_item()
+  local action = self.items[self:selected_item_idx()]
   if not action then
     return false
   end
@@ -299,40 +261,36 @@ function ActionPrompt:activate_selected_action()
   return true
 end
 
-function ActionPrompt:idle()
-  self.search_field:idle()
-end
-
 function ActionPrompt:children()
   return coroutine.wrap(function()
-    coroutine.yield(1, self.search_field)
+    coroutine.yield(self.search_field)
   end)
 end
 
 function ActionPrompt:natural_size()
   local width = 0
-  for _, action in ipairs(self.listed_actions) do
-    width = math.max(width, self:width_of_text(self:action_text(action)))
+  for _, action in ipairs(self.items) do
+    width = math.max(width, ui.text_width(self:item_text(action)))
   end
   return width, (width + 2) // 3
 end
 
-function ActionPrompt:add_actions_of(widget, should_recurse)
+function ActionPrompt:add_items_from_widget(widget, should_recurse)
   for _, action in ipairs(widget.actions) do
-    table.insert(self.listed_actions, action)
+    table.insert(self.items, action)
   end
   if not should_recurse then return end
-  for _, child in widget:children() do
-    self:add_actions_of(child, true)
+  for child in widget:focused_children() do
+    self:add_items_from_widget(child, true)
   end
 end
 
-function ActionPrompt:should_show_action(action)
+function ActionPrompt:should_show_item(action)
   local needle = grapheme.to_lowercase(self.search_field.text)
   if needle == '' then
     return true
   end
-  local haystack = grapheme.to_lowercase(self:action_text(action))
+  local haystack = grapheme.to_lowercase(self:item_text(action))
   local j = 1
   for i = 1, #haystack do
     if haystack:byte(i) == needle:byte(j) then
@@ -345,23 +303,23 @@ function ActionPrompt:should_show_action(action)
   return false
 end
 
-function ActionPrompt:action_text(action)
+function ActionPrompt:item_text(action)
   return action.widget.name .. ': ' .. action.name .. ' ' .. (action.activation_hint or '')
 end
 
-function ActionPrompt:selected_action_idx()
-  local i = self._selected_action_idx
-  if not self.listed_actions[i] or not self:should_show_action(self.listed_actions[i]) then
+function ActionPrompt:selected_item_idx()
+  local i = self._selected_item_idx
+  if not self.items[i] or not self:should_show_item(self.items[i]) then
     i = 1
-    while self.listed_actions[i] and not self:should_show_action(self.listed_actions[i]) do
+    while self.items[i] and not self:should_show_item(self.items[i]) do
       i = i + 1
     end
   end
   return i
 end
 
-function ActionPrompt:set_selected_action_idx(idx)
-  self._selected_action_idx = idx
+function ActionPrompt:set_selected_item_idx(idx)
+  self._selected_item_idx = idx
 end
 
 return ActionPrompt

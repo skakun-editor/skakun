@@ -109,6 +109,8 @@ function SpellChecker:cached_check_of(buffer)
   end
 end
 
+-- TODO: rewrite this in zig
+
 function SpellChecker:check(buffer, tree, grammar, dict, is_async)
   assert(buffer.is_frozen)
   dict = dict or self:dict_for(buffer)

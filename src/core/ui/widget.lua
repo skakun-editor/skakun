@@ -14,6 +14,8 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+-- IDEA: split bounds into logical and visual bounds (clip rects) to make scrolled content possible
+
 local Widget = {
   name = 'Widget',
 }
@@ -42,31 +44,6 @@ function Widget:draw()
   self.has_requested_draw = false
 end
 
-function Widget:handle_event(event)
-  for _, action in ipairs(self.actions) do
-    if action:is_activated_by_event(event) then
-      action:activate(event)
-      return true
-    end
-  end
-  for _, child in self:children() do
-    if child:handle_event(event) then
-      return true
-    end
-  end
-  return false
-end
-
-function Widget:idle() end
-
-function Widget:children()
-  return coroutine.wrap(function() end)
-end
-
-function Widget:natural_size()
-  return 0, 0
-end
-
 function Widget:set_bounds(x, y, width, height)
   self.x = x
   self.y = y
@@ -75,15 +52,74 @@ function Widget:set_bounds(x, y, width, height)
 end
 
 function Widget:drawn_bounds()
-  local drawn = self.drawn
-  return drawn.x, drawn.y, drawn.x + drawn.width - 1, drawn.y + drawn.height - 1
+  return self.drawn.x, self.drawn.y, self.drawn.width, self.drawn.height
 end
 
 function Widget:request_draw()
+  if self.has_requested_draw then return end
   self.has_requested_draw = true
   if self.parent then
     self.parent:request_draw()
   end
+end
+
+function Widget:natural_size()
+  return 0, 0
+end
+
+function Widget:handle_event(event)
+  for _, action in ipairs(self.actions) do
+    if action.has_precedence_over_children and action:is_activated_by_event(event) then
+      action:activate(event)
+      if action.consumes_event then
+        return true
+      end
+    end
+  end
+  for child in self:focused_children() do
+    if child:handle_event(event) then
+      return true
+    end
+  end
+  for _, action in ipairs(self.actions) do
+    if not action.has_precedence_over_children and action:is_activated_by_event(event) then
+      action:activate(event)
+      if action.consumes_event then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+function Widget:idle()
+  for child in self:children() do
+    child:idle()
+  end
+end
+
+function Widget:children()
+  return coroutine.wrap(function() end)
+end
+
+function Widget:child_is_focused(child)
+  return true
+end
+
+function Widget:focused_children()
+  return coroutine.wrap(function()
+    local iter = self:children()
+    while true do
+      local child = iter()
+      if not child or self:child_is_focused(child) then
+        coroutine.yield(child)
+      end
+    end
+  end)
+end
+
+function Widget:is_focused()
+  return not self.parent or self.parent:child_is_focused(self) and self.parent:is_focused()
 end
 
 function Widget:add_action(action)

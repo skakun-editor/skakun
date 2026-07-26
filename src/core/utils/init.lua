@@ -216,8 +216,8 @@ function utils.binary_search_last(table, is_near_enough)
   end
 end
 
-function utils.point_is_in_rect(x, y, left, top, right, bottom)
-  return left <= x and x <= right and top <= y and y <= bottom
+function utils.point_is_in_rect(point_x, point_y, x, y, width, height)
+  return x <= point_x and point_x < x + width and y <= point_y and point_y < y + height
 end
 
 utils.Themer = {}

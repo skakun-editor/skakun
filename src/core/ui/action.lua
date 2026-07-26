@@ -146,10 +146,8 @@ local Action = {
 }
 Action.__index = Action
 
-function Action.new(id, name, desc, activation_hint, is_activated_by_event, activate)
+function Action.new(id, name, desc, activation_hint, is_activated_by_event, activate, has_precedence_over_children, consumes_event)
   return setmetatable({
-    button_symbols = setmetatable({}, { __index = Action.button_symbols }),
-
     widget = nil,
     id = id,
     name = name,
@@ -157,11 +155,13 @@ function Action.new(id, name, desc, activation_hint, is_activated_by_event, acti
     activation_hint = activation_hint,
     is_activated_by_event = is_activated_by_event,
     activate = activate,
+    has_precedence_over_children = has_precedence_over_children,
+    consumes_event = consumes_event,
   }, Action)
 end
 
 function Action.new_simple(id, name, desc, mod_buttons, activate)
-  local self = Action.new(id, name, desc, nil, nil, activate)
+  local self = Action.new(id, name, desc, nil, nil, activate, true, true)
   if type(mod_buttons) == 'table' then
     self:set_activation_buttons(table.unpack(mod_buttons))
   else
@@ -196,9 +196,9 @@ function Action:set_activation_buttons(...)
     end
 
     self.activation_hint = (self.activation_hint and self.activation_hint .. '/' or '') ..
+                           (alt and self.mod_symbols.alt or '') ..
                            (ctrl and self.mod_symbols.ctrl or '') ..
                            (shift and self.mod_symbols.shift or '') ..
-                           (alt and self.mod_symbols.alt or '') ..
                            self.button_symbols[mod_button]
     local continue = self.is_activated_by_event
     function self:is_activated_by_event(event)
