@@ -24,10 +24,11 @@ local utils             = require('core.utils')
 local rgb = tty.Rgb.from_hex
 
 local dracula = {
+  name = 'Dracula',
   themer = utils.Themer.new(),
 }
 
-function dracula.apply()
+function dracula:apply()
   local theme = tty.cap.foreground == 'true_color' and tty.cap.background == 'true_color' and dracula.true_color or dracula.ansi
   dracula.themer:apply(
     ActionPrompt.faces, 'name', theme.faces.ui_text,
@@ -47,15 +48,15 @@ function dracula.apply()
     FileChooser.faces, 'completion_invalid', theme.faces.ui_text_invalid,
     FileChooser.faces, 'selected_completion', theme.faces.ui_selection,
     FileChooser.faces, 'selected_completion_invalid', theme.faces.ui_selection_invalid,
-    TextField.faces, 'normal', theme.faces.ui_text,
-    TextField.faces, 'invalid', theme.faces.ui_text_invalid,
     TextField.faces, 'ellipsis', theme.faces.ui_decoration,
+    TextField.faces, 'invalid', theme.faces.ui_text_invalid,
+    TextField.faces, 'text', theme.faces.ui_text,
     TextField.colors, 'cursor', theme.colors.cursor,
     TextField.colors, 'cursor_foreground', theme.colors.cursor_foreground
   )
 end
 
-function dracula.unapply()
+function dracula:unapply()
   dracula.themer:unapply()
 end
 
@@ -84,7 +85,7 @@ end
 
 -- Reference: https://spec.draculatheme.com/
 
-function dracula.regenerate()
+function dracula:regenerate()
   dracula.true_color = dracula.from({
     background         = rgb'282A36',
     foreground         = rgb'F8F8F2',
@@ -235,6 +236,6 @@ function dracula.from(colors)
   }
 end
 
-dracula.regenerate()
+dracula:regenerate()
 
 return dracula

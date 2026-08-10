@@ -15,31 +15,9 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local tty         = require('core.tty')
-local DocView     = require('core.ui.doc_view')
-local utils       = require('core.utils')
 local github_dark = require('theme.github_dark')
-local rgb = tty.Rgb.from_hex
-
-local github_light = {
-  themer = utils.Themer.new(),
-}
-
-function github_light.apply()
-  local theme = tty.cap.foreground == 'true_color' and tty.cap.background == 'true_color' and github_light.true_color or github_light.ansi
-  github_light.themer:apply(
-    DocView.faces, 'normal', theme.faces.normal,
-    DocView.faces, 'invalid', theme.faces.invalid_illegal,
-    DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
-    DocView.colors, 'cursor', theme.colors.cursor,
-    DocView.colors, 'cursor_foreground', theme.colors.cursor_fg,
-    DocView.colors, 'selection', theme.colors.selection_bg,
-    DocView.colors, 'misspelling', theme.colors.step_error_text
-  )
-end
-
-function github_light.unapply()
-  github_light.themer:unapply()
-end
+local rgb    = tty.Rgb.from_hex
+local Github = getmetatable(github_dark)
 
 -- The particular selection and configuration of colors used below is subject to
 -- the following license:
@@ -66,8 +44,9 @@ end
 
 -- Reference: https://www.npmjs.com/package/@primer/primitives/v/7.17.1?activeTab=code (dist/json/colors/light.json)
 
-function github_light.regenerate()
-  github_light.true_color = github_dark.from({
+return Github.new(
+  'GitHub Light',
+  {
     text                 = rgb'1f2328',
     bg                   = rgb'ffffff',
     comment              = rgb'57606a',
@@ -84,8 +63,8 @@ function github_light.regenerate()
     cursor               = rgb'1f2328',
     cursor_fg            = rgb'ffffff',
     selection_bg         = rgb'badeff',
-  })
-  github_light.ansi = github_dark.from({
+  },
+  {
     text                 = 'black',
     bg                   = 'bright_white',
     comment              = 'bright_black',
@@ -102,9 +81,5 @@ function github_light.regenerate()
     cursor               = 'black',
     cursor_fb            = 'bright_white',
     selection_bg         = 'bright_cyan',
-  })
-end
-
-github_light.regenerate()
-
-return github_light
+  }
+)

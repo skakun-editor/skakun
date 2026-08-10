@@ -203,17 +203,21 @@ function TabView:draw()
   Widget.draw(self)
   if self.width <= 0 or self.height <= 0 then return end
 
+  local tabs_are_drawn = #self.tabs >= 2
+
   local content = self.tabs[self.open_tab_idx]
   if content then
-    content:set_bounds(self.x, self.y + 1, self.width, self.height - 1)
+    content:set_bounds(self.x, self.y + (tabs_are_drawn and 1 or 0), self.width, self.height - (tabs_are_drawn and 1 or 0))
     content:draw()
   else
     tty.set_face(self:is_focused() and self.faces.content or self.faces.content_unfocused)
-    for i = 1, self.height - 1 do
+    for i = tabs_are_drawn and 1 or 0, self.height - 1 do
       tty.move_to(self.x, self.y + i)
       tty.write((' '):rep(self.width))
     end
   end
+
+  if not tabs_are_drawn then return end
 
   -- BUG: ellipses are not drawn if the first/last tab fully fits
   local x, scroll = self.x, self.tab_bar_scroll

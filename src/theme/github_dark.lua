@@ -20,13 +20,22 @@ local DocView           = require('core.ui.doc_view')
 local utils             = require('core.utils')
 local rgb = tty.Rgb.from_hex
 
-local github_dark = {
-  themer = utils.Themer.new(),
-}
+local Github = {}
+Github.__index = Github
 
-function github_dark.apply()
-  local theme = tty.cap.foreground == 'true_color' and tty.cap.background == 'true_color' and github_dark.true_color or github_dark.ansi
-  github_dark.themer:apply(
+function Github.new(name, true_color_palette, ansi_palette)
+  local self = setmetatable({}, Github)
+  self.name = name
+  self.true_color = { colors = true_color_palette }
+  self.ansi = { colors = ansi_palette }
+  self:regenerate()
+  self.themer = utils.Themer.new()
+  return self
+end
+
+function Github:apply()
+  local theme = tty.cap.foreground == 'true_color' and tty.cap.background == 'true_color' and self.true_color or self.ansi
+  self.themer:apply(
     DocView.faces, 'normal', theme.faces.normal,
     DocView.faces, 'invalid', theme.faces.invalid_illegal,
     DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
@@ -37,8 +46,8 @@ function github_dark.apply()
   )
 end
 
-function github_dark.unapply()
-  github_dark.themer:unapply()
+function Github:unapply()
+  self.themer:unapply()
 end
 
 -- The particular selection and configuration of colors used below is subject to
@@ -66,8 +75,40 @@ end
 
 -- Reference: https://www.npmjs.com/package/@primer/primitives/v/7.17.1?activeTab=code (dist/json/colors/dark.json)
 
-function github_dark.regenerate()
-  github_dark.true_color = github_dark.from({
+function Github:regenerate()
+  for _, theme in ipairs({self.true_color, self.ansi}) do
+    local colors = theme.colors
+    local faces = {
+      normal          = { foreground = colors.text,                 background = colors.bg },
+      comment         = { foreground = colors.comment,              background = colors.bg },
+      constant        = { foreground = colors.constant,             background = colors.bg },
+      entity          = { foreground = colors.entity,               background = colors.bg },
+      entity_tag      = { foreground = colors.entity_tag,           background = colors.bg },
+      keyword         = { foreground = colors.keyword,              background = colors.bg },
+      string          = { foreground = colors.string,               background = colors.bg },
+      variable        = { foreground = colors.variable,             background = colors.bg },
+      invalid_illegal = { foreground = colors.invalid_illegal_text, background = colors.invalid_illegal_bg },
+    }
+    faces.syntax_highlights = SyntaxHighlighter.apply_fallbacks({
+      comment                = faces.comment,
+      literal                = faces.constant,
+      string_literal         = faces.string,
+      keyword                = faces.keyword,
+      matchfix_operator      = faces.normal,
+      member_access_operator = faces.normal,
+      ['function']           = faces.entity,
+      type                   = faces.variable,
+      member_identifier      = faces.constant,
+      member_function        = faces.entity,
+      member_type            = faces.variable,
+    }, SyntaxHighlighter.generate_fallbacks({ members = true }))
+    theme.faces = faces
+  end
+end
+
+return Github.new(
+  'GitHub Dark',
+  {
     text                 = rgb'e6edf3',
     bg                   = rgb'0d1117',
     comment              = rgb'8b949e',
@@ -83,8 +124,8 @@ function github_dark.regenerate()
     cursor               = rgb'e6edf3',
     cursor_fg            = rgb'0d1117',
     selection_bg         = rgb'1e4173',
-  })
-  github_dark.ansi = github_dark.from({
+  },
+  {
     text                 = 'white',
     bg                   = 'black',
     comment              = 'bright_black',
@@ -100,40 +141,5 @@ function github_dark.regenerate()
     cursor               = 'white',
     cursor_fg            = 'black',
     selection_bg         = 'blue',
-  })
-end
-
-function github_dark.from(colors)
-  local faces = {
-    normal          = { foreground = colors.text,                 background = colors.bg },
-    comment         = { foreground = colors.comment,              background = colors.bg },
-    constant        = { foreground = colors.constant,             background = colors.bg },
-    entity          = { foreground = colors.entity,               background = colors.bg },
-    entity_tag      = { foreground = colors.entity_tag,           background = colors.bg },
-    keyword         = { foreground = colors.keyword,              background = colors.bg },
-    string          = { foreground = colors.string,               background = colors.bg },
-    variable        = { foreground = colors.variable,             background = colors.bg },
-    invalid_illegal = { foreground = colors.invalid_illegal_text, background = colors.invalid_illegal_bg },
   }
-  faces.syntax_highlights = SyntaxHighlighter.apply_fallbacks({
-    comment                = faces.comment,
-    literal                = faces.constant,
-    string_literal         = faces.string,
-    keyword                = faces.keyword,
-    matchfix_operator      = faces.normal,
-    member_access_operator = faces.normal,
-    ['function']           = faces.entity,
-    type                   = faces.variable,
-    member_identifier      = faces.constant,
-    member_function        = faces.entity,
-    member_type            = faces.variable,
-  }, SyntaxHighlighter.generate_fallbacks({ members = true }))
-  return {
-    colors = colors,
-    faces = faces,
-  }
-end
-
-github_dark.regenerate()
-
-return github_dark
+)

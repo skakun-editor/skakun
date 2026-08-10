@@ -26,9 +26,9 @@ local TextField = setmetatable({
   history_commit_delay = 1.0,
   view_containment_margin = 3,
   faces = {
-    normal = {},
-    invalid = { foreground = 'black', background = 'red' },
+    text = {},
     ellipsis = { foreground = 'white' },
+    invalid = { foreground = 'black', background = 'red' },
   },
   colors = {
     cursor = 'white',
@@ -275,7 +275,7 @@ function TextField.new()
       nil,
       'Type or paste',
       function(action, event)
-        return event.text
+        return event.text and not event.alt and not event.ctrl
       end,
       function(action, event)
         self:update_history_before_edit()
@@ -327,7 +327,7 @@ function TextField:draw()
       if x < self.x or x + width > self.x + self.width then
         grapheme = (' '):rep(math.min(x + width - self.x, self.x + self.width - x))
       end
-      tty.set_face(not is_invalid and self.faces.normal or self.faces.invalid)
+      tty.set_face(not is_invalid and self.faces.text or self.faces.invalid)
       if i == self.cursor then
         tty.set_background(self.colors.cursor)
         tty.set_foreground(self.colors.cursor_foreground)
@@ -343,13 +343,13 @@ function TextField:draw()
     tty.write('…')
 
   else
-    tty.set_face(self.faces.normal)
+    tty.set_face(self.faces.text)
     if self.cursor == #self.text + 1 and x < self.x + self.width then
       tty.set_background(self.colors.cursor)
       tty.set_foreground(self.colors.cursor_foreground)
       tty.write(' ')
       x = x + 1
-      tty.set_face(self.faces.normal)
+      tty.set_face(self.faces.text)
     end
     tty.write((' '):rep(self.x + self.width - x))
   end
@@ -361,7 +361,7 @@ function TextField:draw()
   end
 
   if self.height > 1 then
-    tty.set_face(self.faces.normal)
+    tty.set_face(self.faces.text)
     for y = self.y + 1, self.y + self.height - 1 do
       tty.move_to(self.x, y)
       tty.write((' '):rep(self.width))

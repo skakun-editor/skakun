@@ -14,6 +14,20 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+-- IDEA: activator (receptor?) DSL, examples:
+--       click('enter') | click('kp_enter')
+--       release('mouse_left') | click('escape')
+--       (click('scroll_up') | click('scroll_left')) & function(event) return utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) end
+--       click('ctrl+slash') & function() return self.focused_side end
+--       click('mouse_left') & function(event) return utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) end
+--       ((click('mouse_left') & function() return not self.focused_side end) | function(event) return event.type == 'move' and self.mouse_is_resizing end) ~ ('Drag and hold ' .. click('mouse_left'))
+--       predicate(function(event) return event.text and not event.alt and not event.ctrl end) ~ 'Type or paste'
+--       click('ctrl+', function(button) return tonumber(button) end) ~ (Action.modifier_symbols.ctrl .. '[1-9,0]')
+--       click(function(button)
+--         local num = tonumber(button:match('f(%d+)'))
+--         return num and num <= #themes
+--       end)
+
 local Action = {
   button_symbols = {
     ['escape'] = 'Esc',
@@ -146,6 +160,7 @@ local Action = {
 }
 Action.__index = Action
 
+-- HACK: these last two parameters are hard to remember and easy to miss
 function Action.new(id, name, desc, activation_hint, is_activated_by_event, activate, has_precedence_over_children, consumes_event)
   return setmetatable({
     widget = nil,

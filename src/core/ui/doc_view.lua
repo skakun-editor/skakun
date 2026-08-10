@@ -37,6 +37,8 @@ local utils             = require('core.utils')
 -- TODO: jumping to a specific line number
 -- TODO: find and replace using regex
 -- TODO: align cursors to one column
+-- TODO: reflowing text to fit a column limit
+-- TODO: treesitter grammar selection dialog
 
 local DocView = setmetatable({
   name = 'Document View',
@@ -160,8 +162,8 @@ function DocView.new(doc)
       Action.mod_symbols.shift .. Action.button_symbols.mouse_left,
       function(action, event)
         return (event.type == 'press' and event.button == 'mouse_left' and
-                not event.alt and not event.ctrl and event.shift or
-                event.type == 'move' and self.mouse_is_dragging_selection) and
+               not event.alt and not event.ctrl and event.shift or
+               event.type == 'move' and self.mouse_is_dragging_selection) and
                utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
       end,
       function(action, event)

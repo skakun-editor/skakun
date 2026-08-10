@@ -147,4 +147,11 @@ function Widget:remove_action(action)
   assert(false)
 end
 
+function Widget:set_name(string)
+  self.name = string
+  for child in self:children() do
+    child:set_name(string)
+  end
+end
+
 return Widget

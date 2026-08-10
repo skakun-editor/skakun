@@ -9,19 +9,14 @@ local ui                = require('core.ui')
 local Action            = require('core.ui.action')
 local ActionPrompt      = require('core.ui.action_prompt')
 local DocView           = require('core.ui.doc_view')
+local Frame             = require('core.ui.frame')
 local nerd_fonts        = require('core.ui.nerd_fonts')
 local SplitView         = require('core.ui.split_view')
 local TabView           = require('core.ui.tab_view')
+local ThemeSetter       = require('core.ui.theme_setter')
 local Widget            = require('core.ui.widget')
 local utils             = require('core.utils')
 local tty_test          = require('misc.tty_test')
-local dracula           = require('theme.dracula')
-local fruitmash_dark    = require('theme.fruitmash_dark')
-local fruitmash_light   = require('theme.fruitmash_light')
-local github_dark       = require('theme.github_dark')
-local github_light      = require('theme.github_light')
-local gruvbox_dark      = require('theme.gruvbox_dark')
-local gruvbox_light     = require('theme.gruvbox_light')
 
 -- TODO: update the rest of the themes to support the new ui eleements
 -- TODO: logo
@@ -30,7 +25,11 @@ local gruvbox_light     = require('theme.gruvbox_light')
 -- TODO: do we really need descriptions for all ui actions?
 -- TODO: opening files and having multiple open files at once and having multiple views into one file
 -- BUG: use-after-free race condition in finishget in multithreaded lua
--- TODO: dialog for selecting theme
+-- TODO: nice profiling and debugging environment
+-- TODO: nice Treesitter grammar development environment
+-- BUG: improve Lua OS thread scheduling
+-- BUG: improve Lua interpreter performance
+-- IDEA: Lua typechecker
 
 core.should_forward_stderr_on_exit = false
 utils.lock_globals()
@@ -89,8 +88,17 @@ end
 
 local action_prompt = nil
 
-local theme = fruitmash_dark
-theme.apply()
+local theme_setter = ThemeSetter.new()
+theme_setter:require_themes('dracula', 'fruitmash_dark', 'fruitmash_light', 'github_dark', 'github_light', 'gruvbox_dark', 'gruvbox_light')
+theme_setter:set_theme(require('theme.fruitmash_dark'))
+theme_setter.dialog.parent = root
+local theme_setter_is_shown = false
+function theme_setter:show_dialog()
+  theme_setter_is_shown = true
+end
+function theme_setter:hide_dialog()
+  theme_setter_is_shown = false
+end
 
 local mouse_x, mouse_y = 1, 1
 
@@ -102,6 +110,22 @@ function root:draw()
 
   self.child:set_bounds(self:drawn_bounds())
   self.child:draw()
+
+  if theme_setter_is_shown then
+    local width, height = theme_setter.dialog:natural_size()
+    if width > self.width then
+      width = self.width
+    elseif width % 2 ~= self.width % 2 then
+      width = width + 1
+    end
+    if height > self.height then
+      height = self.height
+    elseif height % 2 ~= self.height % 2 then
+      height = height + 1
+    end
+    theme_setter.dialog:set_bounds(1 + (self.width - width) // 2, 1 + (self.height - height) // 2, width, height)
+    theme_setter.dialog:draw()
+  end
 
   if action_prompt then
     local width, height = action_prompt:natural_size()
@@ -173,8 +197,6 @@ function root:draw()
   -- tty.write(highlight)
 end
 
-local themes = {dracula, fruitmash_dark, fruitmash_light, github_dark, github_light, gruvbox_dark, gruvbox_light}
-
 root:add_actions(
   Action.new_simple(
     'quit',
@@ -196,8 +218,13 @@ root:add_actions(
         action_prompt = nil
       else
         action_prompt = ActionPrompt.new()
-        action_prompt.parent = root
         action_prompt:add_items_from_widget(root, true)
+        function action_prompt:close()
+          action_prompt.parent = nil
+          action_prompt = nil
+        end
+        action_prompt = Frame.new(action_prompt)
+        action_prompt.parent = root
       end
       root:request_draw()
     end
@@ -232,21 +259,10 @@ root:add_actions(
     'set_theme',
     'Set UI theme',
     nil,
-    Action.mod_symbols.ctrl .. '[F1-F' .. #themes .. ']',
+    nil,
+    nil,
     function(action, event)
-      local num = event.button and tonumber(event.button:match('f(%d+)'))
-      return event.type == 'press' and num and num <= #themes and not event.alt and event.ctrl and not event.shift
-    end,
-    function(action, event)
-      if theme then
-        theme.unapply()
-        theme = nil
-      end
-      theme = themes[tonumber(event.button:match('f(%d+)'))]
-      if theme then
-        tty.cap.foreground = event.shift and 'ansi' or 'true_color'
-        theme.apply()
-      end
+      theme_setter:show_dialog()
       root:request_draw()
     end,
     true,
@@ -283,8 +299,19 @@ function root:children()
     if action_prompt then
       coroutine.yield(action_prompt)
     end
+    coroutine.yield(theme_setter.dialog)
     coroutine.yield(self.child)
   end)
+end
+
+function root:child_is_focused(widget)
+  if widget == action_prompt then
+    return true
+  elseif theme_setter_is_shown then
+    return widget == theme_setter.dialog
+  else
+    return widget == self.child
+  end
 end
 
 ui.run(root)

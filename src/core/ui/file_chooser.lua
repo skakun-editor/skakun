@@ -385,7 +385,7 @@ function FileChooser.new(path)
 
   self.path_field = TextField.new()
   self.path_field.parent = self
-  self.path_field.name = self.name
+  self.path_field:set_name(self.name)
   self.path_field.text = path or ''
 
   self._selected_completion_node = nil
