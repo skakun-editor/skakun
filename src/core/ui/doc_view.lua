@@ -39,6 +39,7 @@ local utils             = require('core.utils')
 -- TODO: align cursors to one column
 -- TODO: reflowing text to fit a column limit
 -- TODO: treesitter grammar selection dialog
+-- TODO: save as… dialog
 
 local DocView = setmetatable({
   name = 'Document View',
@@ -608,22 +609,24 @@ end
 
 function DocView:start_background_tasks()
   local buffer = self.doc.buffer
+  self.syntax_highlighter:load_initial_highlight(buffer)
+  self.spell_checker:load_initial_check(buffer)
   local function on_parsed(tree, grammar)
     if buffer ~= self.doc.buffer then return end
-    if tree and grammar and self.syntax_highlighter:does_need_run(buffer, tree, grammar) then
+    if self.syntax_highlighter:needs_run(buffer, tree, grammar) then
       self.syntax_highlighter:stop()
       self.syntax_highlighter:run(buffer, tree, grammar, function()
         self:request_draw()
       end)
     end
-    if self.spell_checker:does_need_run(buffer, tree, grammar) then
+    if self.spell_checker:needs_run(buffer, tree, grammar) then
       self.spell_checker:stop()
       self.spell_checker:run(buffer, tree, grammar, function()
         self:request_draw()
       end)
     end
   end
-  if self.parser:does_need_run(buffer) then
+  if self.parser:needs_run(buffer) then
     self.parser:stop()
     self.parser:run(buffer, on_parsed)
   else

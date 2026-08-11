@@ -30,6 +30,7 @@ local tty_test          = require('misc.tty_test')
 -- BUG: improve Lua OS thread scheduling
 -- BUG: improve Lua interpreter performance
 -- IDEA: Lua typechecker
+-- TODO: hex doc view
 
 core.should_forward_stderr_on_exit = false
 utils.lock_globals()

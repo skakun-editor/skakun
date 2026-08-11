@@ -28,13 +28,14 @@ SpellChecker.__index = SpellChecker
 function SpellChecker.new()
   return setmetatable({
     cache = setmetatable({}, { __mode = 'k' }),
+    cache_lock = thread.newlock(),
     worker = nil,
     is_stopping = false,
     stopped_jobs = setmetatable({}, { __mode = 'k' }),
   }, SpellChecker)
 end
 
-function SpellChecker:does_need_run(buffer, tree, grammar)
+function SpellChecker:needs_run(buffer, tree, grammar)
   local worker = self.worker
   if worker and not worker.thread:join(0) and worker.buffer == buffer then
     local job = worker.job
@@ -63,7 +64,7 @@ function SpellChecker:run(buffer, tree, grammar, callback)
       grammar = grammar,
       dict = dict,
 
-      coroutine = coroutine.wrap(function()
+      coro = coroutine.create(function()
         return self:check(buffer, tree, grammar, dict, true)
       end),
     }
@@ -75,8 +76,11 @@ function SpellChecker:run(buffer, tree, grammar, callback)
     thread = thread.new(
       xpcall,
       function()
-        local is_correct = job.coroutine()
-        if self.is_stopping then
+        self.stopped_jobs[buffer] = nil
+        local is_ok, is_correct = coroutine.resume(job.coro)
+        if not is_ok then
+          stderr.error(here, is_correct)
+        elseif coroutine.status(job.coro) == 'suspended' then
           self.stopped_jobs[buffer] = job
         else
           callback(is_correct)
@@ -109,6 +113,20 @@ function SpellChecker:cached_check_of(buffer)
   end
 end
 
+function SpellChecker:load_initial_check(buffer)
+  local lock <close> = self.cache_lock:acquire()
+  if not self.cache[buffer] then
+    self.cache[buffer] = {
+      is_complete = false,
+      is_correct = self:initial_check(buffer),
+
+      tree = nil,
+      grammar = nil,
+      dict = nil,
+    }
+  end
+end
+
 -- TODO: rewrite this in zig
 
 function SpellChecker:check(buffer, tree, grammar, dict, is_async)
@@ -123,12 +141,13 @@ function SpellChecker:check(buffer, tree, grammar, dict, is_async)
 
   local enchant_dict = self.broker:request_dict(dict)
   if not enchant_dict then
+    local lock <close> = self.cache_lock:acquire()
     self.cache[buffer] = nil
     return nil
   end
 
-  local is_correct = {}
-  self.cache[buffer] = {
+  local is_correct = self:initial_check(buffer)
+  cached = {
     is_complete = false,
     is_correct = is_correct,
 
@@ -136,6 +155,10 @@ function SpellChecker:check(buffer, tree, grammar, dict, is_async)
     grammar = grammar,
     dict = dict,
   }
+  do
+    local lock <close> = self.cache_lock:acquire()
+    self.cache[buffer] = cached
+  end
 
   local idx = 1
   local iter = buffer:iter()
@@ -231,8 +254,25 @@ function SpellChecker:check(buffer, tree, grammar, dict, is_async)
     stderr.warn(here, 'slow check took ', millis, 'ms')
   end
 
-  self.cache[buffer].is_complete = true
+  setmetatable(is_correct, nil)
+  cached.is_complete = true
   return is_correct
+end
+
+function SpellChecker:initial_check(buffer)
+  local parent = buffer.parent
+  while parent do
+    local parent_cached = self.cache[parent]
+    if parent_cached then
+      return setmetatable({}, {
+        __index = function(_, idx)
+          return parent_cached.is_correct[parent:carry_idx_over(idx, buffer)]
+        end
+      })
+    end
+    parent = parent.parent
+  end
+  return {}
 end
 
 function SpellChecker:dict_for(buffer)

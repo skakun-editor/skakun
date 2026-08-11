@@ -19,6 +19,8 @@ local stderr     = require('core.stderr')
 local treesitter = require('core.treesitter')
 local utils      = require('core.utils')
 
+-- TODO: markdown, json, shell, html, css treesitter grammars
+
 local SyntaxHighlighter = {
   is_debug = false,
 }
@@ -27,14 +29,14 @@ SyntaxHighlighter.__index = SyntaxHighlighter
 function SyntaxHighlighter.new()
   return setmetatable({
     cache = setmetatable({}, { __mode = 'k' }),
+    cache_lock = thread.newlock(),
     worker = nil,
     is_stopping = false,
     stopped_jobs = setmetatable({}, { __mode = 'k' }),
   }, SyntaxHighlighter)
 end
 
-
-function SyntaxHighlighter:does_need_run(buffer, tree, grammar)
+function SyntaxHighlighter:needs_run(buffer, tree, grammar)
   local worker = self.worker
   if worker and not worker.thread:join(0) and worker.buffer == buffer then
     local job = worker.job
@@ -61,7 +63,7 @@ function SyntaxHighlighter:run(buffer, tree, grammar, callback)
       tree = tree,
       grammar = grammar,
 
-      coroutine = coroutine.wrap(function()
+      coro = coroutine.create(function()
         return self:highlight(buffer, tree, grammar, true)
       end),
     }
@@ -73,8 +75,11 @@ function SyntaxHighlighter:run(buffer, tree, grammar, callback)
     thread = thread.new(
       xpcall,
       function()
-        local highlight_at, debug_info_at = job.coroutine()
-        if self.is_stopping then
+        self.stopped_jobs[buffer] = nil
+        local is_ok, highlight_at, debug_info_at = coroutine.resume(job.coro)
+        if not is_ok then
+          stderr.error(here, highlight_at)
+        elseif coroutine.status(job.coro) == 'suspended' then
           self.stopped_jobs[buffer] = job
         else
           callback(highlight_at, debug_info_at)
@@ -107,6 +112,20 @@ function SyntaxHighlighter:cached_highlight_of(buffer)
   end
 end
 
+function SyntaxHighlighter:load_initial_highlight(buffer)
+  local lock <close> = self.cache_lock:acquire()
+  if not self.cache[buffer] then
+    self.cache[buffer] = {
+      is_complete = false,
+      highlight_at = self:initial_highlight(buffer),
+      debug_info_at = nil,
+
+      tree = nil,
+      grammar = nil,
+    }
+  end
+end
+
 function SyntaxHighlighter:highlight(buffer, tree, grammar, is_async)
   assert(buffer.is_frozen)
 
@@ -115,9 +134,15 @@ function SyntaxHighlighter:highlight(buffer, tree, grammar, is_async)
     return cached.highlight_at, cached.debug_info_at
   end
 
-  local highlight_at = {}
+  if not tree then
+    local lock <close> = self.cache_lock:acquire()
+    self.cache[buffer] = nil
+    return nil, nil
+  end
+
+  local highlight_at = self:initial_highlight(buffer)
   local debug_info_at = self.is_debug and {} or nil
-  self.cache[buffer] = {
+  cached = {
     is_complete = false,
     highlight_at = highlight_at,
     debug_info_at = debug_info_at,
@@ -125,16 +150,9 @@ function SyntaxHighlighter:highlight(buffer, tree, grammar, is_async)
     tree = tree,
     grammar = grammar,
   }
-
-  local parent = buffer.parent
-  while parent do
-    local cached = self.cache[parent]
-    if self.cache[parent] then
-      -- TODO: use a smarter array that would take into account the edits
-      highlight_at = setmetatable(highlight_at, { __index = self.cache[parent].highlight_at })
-      break
-    end
-    parent = parent.parent
+  do
+    local lock <close> = self.cache_lock:acquire()
+    self.cache[buffer] = cached
   end
 
   local function read_node(node)
@@ -210,12 +228,25 @@ function SyntaxHighlighter:highlight(buffer, tree, grammar, is_async)
     stderr.warn(here, 'slow locals took ', millis, 'ms')
   end
 
-  local metatable = getmetatable(highlight_at)
-  if metatable then
-    metatable.__index = nil
-  end
-  self.cache[buffer].is_complete = true
+  setmetatable(highlight_at, nil)
+  cached.is_complete = true
   return highlight_at, debug_info_at
+end
+
+function SyntaxHighlighter:initial_highlight(buffer)
+  local parent = buffer.parent
+  while parent do
+    local parent_cached = self.cache[parent]
+    if parent_cached then
+      return setmetatable({}, {
+        __index = function(_, idx)
+          return parent_cached.highlight_at[parent:carry_idx_over(idx, buffer)]
+        end
+      })
+    end
+    parent = parent.parent
+  end
+  return {}
 end
 
 -- IDEA: type parameters

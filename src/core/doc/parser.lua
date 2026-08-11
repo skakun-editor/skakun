@@ -31,7 +31,7 @@ function Parser.new()
   }, Parser)
 end
 
-function Parser:does_need_run(buffer)
+function Parser:needs_run(buffer)
   local worker = self.worker
   if worker and not worker.thread:join(0) and worker.buffer == buffer and worker.job.grammar == self:grammar_for(buffer) then
     return false
@@ -54,7 +54,8 @@ function Parser:run(buffer, callback)
   if not job or job.grammar ~= grammar then
     job = {
       grammar = grammar,
-      coroutine = coroutine.wrap(function()
+
+      coro = coroutine.create(function()
         return self:parse(buffer, grammar, true)
       end),
     }
@@ -66,8 +67,11 @@ function Parser:run(buffer, callback)
     thread = thread.new(
       xpcall,
       function()
-        local tree, grammar = job.coroutine()
-        if self.is_stopping then
+        self.stopped_jobs[buffer] = nil
+        local is_ok, tree, grammar = coroutine.resume(job.coro)
+        if not is_ok then
+          stderr.error(here, tree)
+        elseif coroutine.status(job.coro) == 'suspended' then
           self.stopped_jobs[buffer] = job
         else
           callback(tree, grammar)
