@@ -37,17 +37,14 @@ function TabView.new()
   local self = setmetatable(Widget.new(), TabView)
   self.faces = setmetatable({}, { __index = TabView.faces })
 
+  local A = Action.Activator
   self:add_actions(
     Action.new(
       'open_mouse',
       'Open tab under mouse pointer',
       nil,
-      Action.button_symbols.mouse_left,
-      function(action, event)
-        return (event.type == 'press' or event.type == 'repeat') and
-               event.button == 'mouse_left' and
-               not event.alt and not event.ctrl and not event.shift and
-               self.x <= event.x and event.x < self.x + self.width and event.y == self.y
+      A.click('mouse_left') & function(event)
+        return self.x <= event.x and event.x < self.x + self.width and event.y == self.y
       end,
       function(action, event)
         local x = self.x - self.tab_bar_scroll
@@ -60,35 +57,28 @@ function TabView.new()
           end
           x = x + width
         end
-      end,
-      true,
-      true
+      end
     ),
     Action.new(
       'open_num',
       'Open nth tab',
       nil,
-      Action.mod_symbols.alt .. '[1-9,0]',
-      function(action, event)
-        return (event.type == 'press' or event.type == 'repeat') and
-               tonumber(event.button) and
-               event.alt and not event.ctrl and not event.shift
-      end,
+      A.click('alt+', function(button)
+        return tonumber(button)
+      end):with_hint(ui.modifier_syms.alt .. '[1-9,0]'),
       function(action, event)
         local n = event.button == '0' and 10 or tonumber(event.button)
         if n <= #self.tabs then
           self:set_open_tab_idx(n)
         end
         self:request_draw()
-      end,
-      true,
-      true
+      end
     ),
-    Action.new_simple(
+    Action.new(
       'open_prev',
       'Open previous tab',
       nil,
-      'alt+page_up',
+      A.click('alt+page_up'),
       function(action, event)
         if self.open_tab_idx then
           self:set_open_tab_idx(math.max(1, self.open_tab_idx - 1))
@@ -98,11 +88,11 @@ function TabView.new()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'open_next',
       'Open next tab',
       nil,
-      'alt+page_down',
+      A.click('alt+page_down'),
       function(action, event)
         if self.open_tab_idx then
           self:set_open_tab_idx(math.min(#self.tabs, self.open_tab_idx + 1))
@@ -112,11 +102,11 @@ function TabView.new()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'remove',
       'Remove tab',
       nil,
-      'ctrl+w',
+      A.click('ctrl+w'),
       function(action, event)
         if self.open_tab_idx then
           self:remove_tab_at(self.open_tab_idx)
@@ -127,22 +117,22 @@ function TabView.new()
         end
       end
     ),
-    Action.new_simple(
+    Action.new(
       'move_backward',
       'Move tab left',
       nil,
-      'alt+shift+page_up',
+      A.click('alt+shift+page_up'),
       function(action, event)
         if self:move_open_tab_backward() then
           self:request_draw()
         end
       end
     ),
-    Action.new_simple(
+    Action.new(
       'move_forward',
       'Move tab right',
       nil,
-      'alt+shift+page_down',
+      A.click('alt+shift+page_down'),
       function(action, event)
         if self:move_open_tab_forward() then
           self:request_draw()
@@ -153,30 +143,20 @@ function TabView.new()
       'scroll_backward',
       'Scroll left',
       nil,
-      Action.button_symbols.scroll_up .. '/' .. Action.button_symbols.scroll_left,
-      function(action, event)
-        return (event.type == 'press' or event.type == 'repeat') and
-               (event.button == 'scroll_up' or event.button == 'scroll_left') and
-               not event.alt and not event.ctrl and not event.shift and
-               self.x <= event.x and event.x < self.x + self.width and event.y == self.y
+      (A.click('scroll_up') | A.click('scroll_left')) & function(event)
+        return self.x <= event.x and event.x < self.x + self.width and event.y == self.y
       end,
       function(action, event)
         self.tab_bar_scroll = math.max(0, self.tab_bar_scroll - self.scroll_speed)
         self:request_draw()
-      end,
-      true,
-      true
+      end
     ),
     Action.new(
       'scroll_forward',
       'Scroll right',
       nil,
-      Action.button_symbols.scroll_down .. '/' .. Action.button_symbols.scroll_right,
-      function(action, event)
-        return (event.type == 'press' or event.type == 'repeat') and
-               (event.button == 'scroll_down' or event.button == 'scroll_right') and
-               not event.alt and not event.ctrl and not event.shift and
-               self.x <= event.x and event.x < self.x + self.width and event.y == self.y
+      (A.click('scroll_down') | A.click('scroll_right')) & function(event)
+        return self.x <= event.x and event.x < self.x + self.width and event.y == self.y
       end,
       function(action, event)
         local width = 0
@@ -185,9 +165,7 @@ function TabView.new()
         end
         self.tab_bar_scroll = math.max(0, math.min(width - self.width, self.tab_bar_scroll + self.scroll_speed))
         self:request_draw()
-      end,
-      true,
-      true
+      end
     )
   )
   self.actions.remove.has_precedence_over_children = false

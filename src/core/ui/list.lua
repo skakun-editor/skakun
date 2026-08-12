@@ -37,72 +37,73 @@ function List.new(path)
   local self = setmetatable(Widget.new(), List)
   self.faces = setmetatable({}, { __index = List.faces })
 
+  local A = Action.Activator
   self:add_actions(
-    Action.new_simple(
+    Action.new(
       'select_prev',
       'Select previous item',
       'Selects the item directly above the current one, if one exists.',
-      'up',
+      A.click('up'),
       function(action, event)
         self:move_item_selection_up(1)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_next',
       'Select next item',
       'Selects the item directly below the current one, if one exists.',
-      'down',
+      A.click('down'),
       function(action, event)
         self:move_item_selection_down(1)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_prev_page',
       'Select item on previous page',
       'Moves the item selection up by one visible page or as far as it is possible.',
-      'page_up',
+      A.click('page_up'),
       function(action, event)
         self:move_item_selection_up(self.height - 1)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_next_page',
       'Select item on next page',
       'Moves the item selection down by one visible page or as far as it is possible.',
-      'page_down',
+      A.click('page_down'),
       function(action, event)
         self:move_item_selection_down(self.height - 1)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_prev_scroll',
       'Scroll item selection up',
       'Moves the item selection up by the distance appropriate for a mouse scroll.',
-      'scroll_up',
+      A.click('scroll_up'),
       function(action, event)
         self:move_item_selection_up(self.scroll_speed)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_next_scroll',
       'Scroll item selection down',
       'Moves the item selection down by the distance appropriate for a mouse scroll.',
-      'scroll_down',
+      A.click('scroll_down'),
       function(action, event)
         self:move_item_selection_down(self.scroll_speed)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_first',
       'Select the first item',
       nil,
-      'ctrl+home',
+      A.click('ctrl+home'),
       function(action, event)
         for i, item in ipairs(self.items) do
           if self:should_show_item(item) then
@@ -113,11 +114,11 @@ function List.new(path)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_last',
       'Select the last item',
       nil,
-      'ctrl+end',
+      A.click('ctrl+end'),
       function(action, event)
         for i = #self.items, 1, -1 do
           if self:should_show_item(self.items[i]) then

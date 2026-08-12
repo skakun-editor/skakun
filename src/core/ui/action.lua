@@ -14,189 +14,59 @@
 -- You should have received a copy of the GNU General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- IDEA: activator (receptor?) DSL, examples:
---       click('enter') | click('kp_enter')
---       release('mouse_left') | click('escape')
---       (click('scroll_up') | click('scroll_left')) & function(event) return utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) end
---       click('ctrl+slash') & function() return self.focused_side end
---       click('mouse_left') & function(event) return utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) end
---       ((click('mouse_left') & function() return not self.focused_side end) | function(event) return event.type == 'move' and self.mouse_is_resizing end) ~ ('Drag and hold ' .. click('mouse_left'))
---       predicate(function(event) return event.text and not event.alt and not event.ctrl end) ~ 'Type or paste'
---       click('ctrl+', function(button) return tonumber(button) end) ~ (Action.modifier_symbols.ctrl .. '[1-9,0]')
---       click(function(button)
---         local num = tonumber(button:match('f(%d+)'))
---         return num and num <= #themes
---       end)
+local ui = require('core.ui')
 
-local Action = {
-  button_symbols = {
-    ['escape'] = 'Esc',
-    ['f1'] = 'F1',
-    ['f2'] = 'F2',
-    ['f3'] = 'F3',
-    ['f4'] = 'F4',
-    ['f5'] = 'F5',
-    ['f6'] = 'F6',
-    ['f7'] = 'F7',
-    ['f8'] = 'F8',
-    ['f9'] = 'F9',
-    ['f10'] = 'F10',
-    ['f11'] = 'F11',
-    ['f12'] = 'F12',
-    ['print_screen'] = 'PrtSc',
-    ['scroll_lock'] = 'ScrlLock',
-    ['pause'] = 'Pause',
-
-    ['backtick'] = '`',
-    ['1'] = '1',
-    ['2'] = '2',
-    ['3'] = '3',
-    ['4'] = '4',
-    ['5'] = '5',
-    ['6'] = '6',
-    ['7'] = '7',
-    ['8'] = '8',
-    ['9'] = '9',
-    ['0'] = '0',
-    ['minus'] = '-',
-    ['equal'] = '=',
-    ['backspace'] = 'Backspc',
-    ['insert'] = 'Ins',
-    ['home'] = 'Home',
-    ['page_up'] = 'PgUp',
-
-    ['tab'] = 'Tab',
-    ['q'] = 'Q',
-    ['w'] = 'W',
-    ['e'] = 'E',
-    ['r'] = 'R',
-    ['t'] = 'T',
-    ['y'] = 'Y',
-    ['u'] = 'U',
-    ['i'] = 'I',
-    ['o'] = 'O',
-    ['p'] = 'P',
-    ['left_bracket'] = '[',
-    ['right_bracket'] = ']',
-    ['backslash'] = '\\',
-    ['delete'] = 'Del',
-    ['end'] = 'End',
-    ['page_down'] = 'PgDn',
-
-    ['caps_lock'] = 'CapsLock',
-    ['a'] = 'A',
-    ['s'] = 'S',
-    ['d'] = 'D',
-    ['f'] = 'F',
-    ['g'] = 'G',
-    ['h'] = 'H',
-    ['j'] = 'J',
-    ['k'] = 'K',
-    ['l'] = 'L',
-    ['semicolon'] = ';',
-    ['apostrophe'] = '\'',
-    ['enter'] = 'Enter',
-
-    ['left_shift'] = 'LShift',
-    ['z'] = 'Z',
-    ['x'] = 'X',
-    ['c'] = 'C',
-    ['v'] = 'V',
-    ['b'] = 'B',
-    ['n'] = 'N',
-    ['m'] = 'M',
-    ['comma'] = ',',
-    ['dot'] = '.',
-    ['slash'] = '/',
-    ['right_shift'] = 'RShift',
-    ['up'] = 'Up',
-
-    ['left_ctrl'] = 'LCtrl',
-    ['left_super'] = 'LSuper',
-    ['left_alt'] = 'LAlt',
-    ['space'] = 'Space',
-    ['right_alt'] = 'RAlt',
-    ['right_super'] = 'RSuper',
-    ['menu'] = 'Menu',
-    ['right_ctrl'] = 'RCtrl',
-    ['left'] = 'Left',
-    ['down'] = 'Down',
-    ['right'] = 'Right',
-
-    ['num_lock'] = 'NumLock',
-    ['kp_divide'] = 'KP/',
-    ['kp_multiply'] = 'KP*',
-    ['kp_subtract'] = 'KP-',
-    ['kp_add'] = 'KP+',
-    ['kp_enter'] = 'KPEnter',
-    ['kp_1'] = 'KP1',
-    ['kp_2'] = 'KP2',
-    ['kp_3'] = 'KP3',
-    ['kp_4'] = 'KP4',
-    ['kp_5'] = 'KP5',
-    ['kp_6'] = 'KP6',
-    ['kp_7'] = 'KP7',
-    ['kp_8'] = 'KP8',
-    ['kp_9'] = 'KP9',
-    ['kp_0'] = 'KP0',
-    ['kp_decimal'] = 'KP.',
-
-    ['mouse_left'] = 'LMB',
-    ['mouse_middle'] = 'MMB',
-    ['mouse_right'] = 'RMB',
-    ['scroll_up'] = 'ScrlUp',
-    ['scroll_down'] = 'ScrlDown',
-    ['scroll_left'] = 'ScrlLeft',
-    ['scroll_right'] = 'ScrlRght',
-    ['mouse_prev'] = 'Back',
-    ['mouse_next'] = 'Fwd',
-  },
-
-  mod_symbols = {
-    alt = 'Alt+',
-    ctrl = 'Ctrl+',
-    shift = 'Shift+',
-  },
-}
+local Action = {}
 Action.__index = Action
 
--- HACK: these last two parameters are hard to remember and easy to miss
-function Action.new(id, name, desc, activation_hint, is_activated_by_event, activate, has_precedence_over_children, consumes_event)
-  return setmetatable({
+function Action.new(id, name, desc, activator, activate)
+  local self = setmetatable({
     widget = nil,
     id = id,
     name = name,
     desc = desc,
-    activation_hint = activation_hint,
-    is_activated_by_event = is_activated_by_event,
+    activator = nil,
+    activation_hint = nil,
     activate = activate,
-    has_precedence_over_children = has_precedence_over_children,
-    consumes_event = consumes_event,
+    has_precedence_over_children = true,
+    consumes_event = true,
   }, Action)
-end
-
-function Action.new_simple(id, name, desc, mod_buttons, activate)
-  local self = Action.new(id, name, desc, nil, nil, activate, true, true)
-  if type(mod_buttons) == 'table' then
-    self:set_activation_buttons(table.unpack(mod_buttons))
-  else
-    self:set_activation_buttons(mod_buttons)
-  end
+  self:set_activator(activator)
   return self
 end
 
-function Action:set_activation_buttons(...)
-  self.activation_hint = nil
-  function self:is_activated_by_event(event)
-    return false
+function Action:set_activator(value)
+  self.activator = value
+  if value then
+    self.activation_hint = value.hint
   end
+end
 
-  for i = 1, select('#', ...) do
-    local mod_button = select(i, ...)
+function Action:is_activated_by_event(event)
+  return self.activator and self.activator(event)
+end
 
+function Action:activate(event) end
+
+Action.Activator = {}
+Action.Activator.__index = Action.Activator
+
+function Action.Activator.click(arg1, arg2)
+  if type(arg1) == 'function' then
+    assert(not arg2)
+    return setmetatable({
+      predicate = function(event)
+        return (event.type == 'press' or event.type == 'repeat') and
+               not event.alt and not event.ctrl and not event.shift and
+               arg1(event.button)
+      end,
+      hint = nil,
+    }, Action.Activator)
+
+  else
     local alt, ctrl, shift = false, false, false
     while true do
-      local mod, button = mod_button:match('([^+]*)%+(.*)')
+      local mod, new_arg1 = arg1:match('([^+]*)%+(.*)')
       if not mod then break end
       if mod == 'alt' then
         alt = true
@@ -207,26 +77,88 @@ function Action:set_activation_buttons(...)
       else
         error(('unknown modifier: %s'):format(mod))
       end
-      mod_button = button
+      arg1 = new_arg1
     end
 
-    self.activation_hint = (self.activation_hint and self.activation_hint .. '/' or '') ..
-                           (alt and self.mod_symbols.alt or '') ..
-                           (ctrl and self.mod_symbols.ctrl or '') ..
-                           (shift and self.mod_symbols.shift or '') ..
-                           self.button_symbols[mod_button]
-    local continue = self.is_activated_by_event
-    function self:is_activated_by_event(event)
-      return (event.type == 'press' or event.type == 'repeat') and event.button == mod_button and
-             event.alt == alt and event.ctrl == ctrl and event.shift == shift or continue(self, event)
+    if #arg1 == 0 then
+      assert(type(arg2) == 'function')
+      return setmetatable({
+        predicate = function(event)
+          return (event.type == 'press' or event.type == 'repeat') and
+                 event.alt == alt and event.ctrl == ctrl and event.shift == shift and
+                 arg2(event.button)
+        end,
+        hint = nil,
+      }, Action.Activator)
+
+    else
+      assert(not arg2)
+      return setmetatable({
+        predicate = function(event)
+          return (event.type == 'press' or event.type == 'repeat') and
+                 event.alt == alt and event.ctrl == ctrl and event.shift == shift and
+                 event.button == arg1
+        end,
+        hint = (alt and ui.modifier_syms.alt or '') ..
+               (ctrl and ui.modifier_syms.ctrl or '') ..
+               (shift and ui.modifier_syms.shift or '') ..
+               ui.button_syms[arg1],
+      }, Action.Activator)
     end
   end
 end
 
-function Action:is_activated_by_event(event)
-  return false
+function Action.Activator.release(arg)
+  return setmetatable({
+    predicate = type(arg) == 'function' and function(event)
+      return event.type == 'release' and arg(event.button)
+    end or function(event)
+      return event.type == 'release' and event.button == arg
+    end,
+    hint = type(arg) ~= 'function' and 'Release' .. ui.button_syms[arg] or nil,
+  }, Action.Activator)
 end
 
-function Action:activate(event) end
+function Action.Activator.predicate(func)
+  return setmetatable({
+    predicate = func,
+    hint = nil,
+  }, Action.Activator)
+end
+
+function Action.Activator:with_hint(text)
+  return setmetatable({
+    predicate = self.predicate,
+    hint = text,
+  }, Action.Activator)
+end
+
+function Action.Activator:__bor(other)
+  if type(other) == 'function' then
+    other = Action.Activator.predicate(other)
+  end
+  return setmetatable({
+    predicate = function(event)
+      return self(event) or other(event)
+    end,
+    hint = self.hint and other.hint and self.hint .. '/' .. other.hint or self.hint or other.hint,
+  }, Action.Activator)
+end
+
+function Action.Activator:__band(other)
+  if type(other) == 'function' then
+    other = Action.Activator.predicate(other)
+  end
+  return setmetatable({
+    predicate = function(event)
+      return self(event) and other(event)
+    end,
+    hint = self.hint or other.hint,
+  }, Action.Activator)
+end
+
+function Action.Activator:__call(event)
+  return self.predicate(event)
+end
 
 return Action

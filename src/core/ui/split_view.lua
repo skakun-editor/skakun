@@ -15,6 +15,7 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local tty     = require('core.tty')
+local ui      = require('core.ui')
 local Action  = require('core.ui.action')
 local TabView = require('core.ui.tab_view')
 local Widget  = require('core.ui.widget')
@@ -35,15 +36,15 @@ function SplitView.new()
   local self = setmetatable(Widget.new(), SplitView)
   self.faces = setmetatable({}, { __index = SplitView.faces })
 
+  local A = Action.Activator
   self:add_actions(
     Action.new(
       'focus_side_mouse',
       'Focus side under mouse pointer',
       nil,
-      'Any mouse button',
-      function(action, event)
+      A.predicate(function(event)
         return (event.type == 'press' or event.type == 'repeat') and event.x and event.y
-      end,
+      end):with_hint('Any mouse button'),
       function(action, event)
         if utils.point_is_in_rect(event.x, event.y, self:first_bounds()) then
           self.focused_side = 'first'
@@ -53,70 +54,60 @@ function SplitView.new()
           self.focused_side = nil
         end
         self:request_draw()
-      end,
-      true,
-      false
+      end
     ),
     Action.new(
       'unfocus_side',
       'Unfocus side',
       nil,
-      Action.mod_symbols.ctrl .. Action.button_symbols.slash,
-      function(action, event)
-        return (event.type == 'press' or event.type == 'repeat') and event.button == 'slash' and
-               not event.alt and event.ctrl and not event.shift and self.focused_side
+      A.click('ctrl+slash') & function(event)
+        return self.focused_side
       end,
       function(action, event)
         self.focused_side = nil
         self:request_draw()
-      end,
-      false,
-      true
+      end
     ),
     Action.new(
       'focus_leaf_num',
       'Focus nth pane',
       nil,
-      Action.mod_symbols.ctrl .. '[1-9,0]',
-      function(action, event)
-        return (event.type == 'press' or event.type == 'repeat') and tonumber(event.button) and
-               not event.alt and event.ctrl and not event.shift
-      end,
+      A.click('ctrl+', function(button)
+        return tonumber(button)
+      end):with_hint(ui.modifier_syms.ctrl .. '[1-9,0]'),
       function(action, event)
         if self:focus_leaf_with_num(event.button == '0' and 10 or tonumber(event.button)) then
           self:request_draw()
         end
-      end,
-      true,
-      true
+      end
     ),
-    Action.new_simple(
+    Action.new(
       'focus_leaf_prev',
       'Focus previous pane',
       nil,
-      'ctrl+page_up',
+      A.click('ctrl+page_up'),
       function(action, event)
         if self:focus_prev_leaf() then
           self:request_draw()
         end
       end
     ),
-    Action.new_simple(
+    Action.new(
       'focus_leaf_next',
       'Focus next pane',
       nil,
-      'ctrl+page_down',
+      A.click('ctrl+page_down'),
       function(action, event)
         if self:focus_next_leaf() then
           self:request_draw()
         end
       end
     ),
-    Action.new_simple(
+    Action.new(
       'tab_backward',
       'Move tab backward',
       nil,
-      'alt+shift+page_up',
+      A.click('alt+shift+page_up'),
       function(action, event)
         if self:move_focused_leaf_tab_backward() then
           self:request_draw()
@@ -126,11 +117,11 @@ function SplitView.new()
         end
       end
     ),
-    Action.new_simple(
+    Action.new(
       'tab_forward',
       'Move tab forward',
       nil,
-      'alt+shift+page_down',
+      A.click('alt+shift+page_down'),
       function(action, event)
         if self:move_focused_leaf_tab_forward() then
           self:request_draw()
@@ -140,21 +131,21 @@ function SplitView.new()
         end
       end
     ),
-    Action.new_simple(
+    Action.new(
       'leaf_backward',
       'Move pane backward',
       nil,
-      'ctrl+shift+page_up',
+      A.click('ctrl+shift+page_up'),
       function(action, event)
         self:move_focused_leaf_backward()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'leaf_forward',
       'Move pane forward',
       nil,
-      'ctrl+shift+page_down',
+      A.click('ctrl+shift+page_down'),
       function(action, event)
         self:move_focused_leaf_forward()
         self:request_draw()
@@ -164,69 +155,63 @@ function SplitView.new()
       'resize_mouse',
       'Move split to mouse pointer',
       nil,
-      'Drag and hold ' .. Action.button_symbols.mouse_left,
-      function(action, event)
-        return (event.type == 'press' or event.type == 'repeat') and event.button == 'mouse_left' and
-               not event.alt and not event.ctrl and not event.shift and not self.focused_side or
-               event.type == 'move' and self.mouse_is_resizing
-      end,
+      (A.click('mouse_left') & function()
+        return not self.focused_side
+      end | function(event)
+        return event.type == 'move' and self.mouse_is_resizing
+      end):with_hint('Drag and hold ' .. ui.button_syms.mouse_left),
       function(action, event)
         self.mouse_is_resizing = true
         self.split_position = math.max(0.0, math.min(1.0, self:split_position_from_coord(self.is_vertical and event.x or event.y)))
         self:request_draw()
-      end,
-      true,
-      true
+      end
     ),
     Action.new(
       'stop_drag',
       'Stop dragging split',
       nil,
-      'Release ' .. Action.button_symbols.mouse_left,
-      function(action, event)
-        return event.type == 'release' and event.button == 'mouse_left' and self.mouse_is_resizing
+      A.release('mouse_left') & function()
+        return self.mouse_is_resizing
       end,
       function(action, event)
         self.mouse_is_resizing = false
-      end,
-      true,
-      true
+      end
     ),
-    Action.new_simple(
+    Action.new(
       'resize_backward',
       'Move split backward',
       nil,
-      'ctrl+alt+left_bracket',
+      A.click('ctrl+alt+left_bracket'),
       function(action, event)
         self.split_position = math.max(0.0, self:split_position_from_coord(self:split_coord() - 1))
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'resize_forward',
       'Move split forward',
       nil,
-      'ctrl+alt+right_bracket',
+      A.click('ctrl+alt+right_bracket'),
       function(action, event)
         self.split_position = math.min(1.0, self:split_position_from_coord(self:split_coord() + 1))
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'split',
       'Split focused side',
       nil,
-      'ctrl+backslash',
+      A.click('ctrl+backslash'),
       function(action, event)
         self:split_focused_side()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'merge',
       'Merge focused side',
       nil,
-      'ctrl+w',
+      A.click('ctrl+w'),
       function(action, event)
         if self:merge_focused_side() then
           self:request_draw()
@@ -236,30 +221,31 @@ function SplitView.new()
         end
       end
     ),
-    Action.new_simple(
+    Action.new(
       'rotate_left',
       'Rotate left',
       nil,
-      'ctrl+left_bracket',
+      A.click('ctrl+left_bracket'),
       function(action, event)
         self:rotate_left()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'rotate_right',
       'Rotate right',
       nil,
-      'ctrl+right_bracket',
+      A.click('ctrl+right_bracket'),
       function(action, event)
         self:rotate_right()
         self:request_draw()
       end
     )
   )
-  for _, i in ipairs({'resize_backward', 'resize_forward', 'split', 'merge', 'rotate_left', 'rotate_right'}) do
+  for _, i in ipairs({'unfocus_side', 'resize_backward', 'resize_forward', 'split', 'merge', 'rotate_left', 'rotate_right'}) do
     self.actions[i].has_precedence_over_children = false
   end
+  self.actions.focus_side_mouse.consumes_event = false
 
   self.split_position = 0.5
   self.is_vertical = true

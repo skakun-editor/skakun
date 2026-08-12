@@ -279,103 +279,104 @@ function FileChooser.new(path)
   local self = setmetatable(Widget.new(), FileChooser)
   self.faces = setmetatable({}, { __index = FileChooser.faces })
 
+  local A = Action.Activator
   self:add_actions(
-    Action.new_simple(
+    Action.new(
       'select_prev',
       'Select previous completion',
       'Selects the completion directly above the current one, if one exists.',
-      'up',
+      A.click('up'),
       function(action, event)
         self:move_completion_selection_up(1)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_next',
       'Select next completion',
       'Selects the completion directly below the current one, if one exists.',
-      'down',
+      A.click('down'),
       function(action, event)
         self:move_completion_selection_down(1)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_prev_page',
       'Select completion on previous page',
       'Moves the completion selection up by one visible page or as far as it is possible.',
-      'page_up',
+      A.click('page_up'),
       function(action, event)
         self:move_completion_selection_up(self.height - 1)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_next_page',
       'Select completion on next page',
       'Moves the completion selection down by one visible page or as far as it is possible.',
-      'page_down',
+      A.click('page_down'),
       function(action, event)
         self:move_completion_selection_down(self.height - 1)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_prev_scroll',
       'Scroll completion selection up',
       'Moves the completion selection up by the distance appropriate for a mouse scroll.',
-      'scroll_up',
+      A.click('scroll_up'),
       function(action, event)
         self:move_completion_selection_up(self.scroll_speed)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_next_scroll',
       'Scroll completion selection down',
       'Moves the completion selection down by the distance appropriate for a mouse scroll.',
-      'scroll_down',
+      A.click('scroll_down'),
       function(action, event)
         self:move_completion_selection_down(self.scroll_speed)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_first',
       'Select the first completion',
       nil,
-      'ctrl+home',
+      A.click('ctrl+home'),
       function(action, event)
         self:set_selected_completion_node(self:first_completion())
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_last',
       'Select the last completion',
       nil,
-      'ctrl+end',
+      A.click('ctrl+end'),
       function(action, event)
         self:set_selected_completion_node(self:last_completion())
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'apply_completion',
       'Apply selected completion',
       'Completes the entered path with the selected completion.',
-      'tab',
+      A.click('tab'),
       function(action, event)
         if self:apply_selected_completion() then
           self:request_draw()
         end
       end
     ),
-    Action.new_simple(
+    Action.new(
       'enter_parent_dir',
       'Go to parent directory',
       "Replaces the entered path with its parent directory's path.",
-      'shift+tab',
+      A.click('shift+tab'),
       function(action, event)
         self:enter_parent_dir()
         self:request_draw()

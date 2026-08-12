@@ -198,21 +198,22 @@ function root:draw()
   -- tty.write(highlight)
 end
 
+local A = Action.Activator
 root:add_actions(
-  Action.new_simple(
+  Action.new(
     'quit',
     'Quit Skakun',
     nil,
-    'ctrl+q',
+    A.click('ctrl+q'),
     function(action, event)
       ui.stop()
     end
   ),
-  Action.new_simple(
+  Action.new(
     'action_prompt',
     'Toggle action prompt',
     'Opens or closes a list of actions you can perform in the UI.',
-    'f1',
+    A.click('f1'),
     function(action, event)
       if action_prompt then
         action_prompt.parent = nil
@@ -230,11 +231,11 @@ root:add_actions(
       root:request_draw()
     end
   ),
-  Action.new_simple(
+  Action.new(
     'split',
     'Split view',
     nil,
-    'ctrl+backslash',
+    A.click('ctrl+backslash'),
     function(action, event)
       local split_view = SplitView.new()
       root.child.parent = nil
@@ -244,11 +245,11 @@ root:add_actions(
       root:request_draw()
     end
   ),
-  Action.new_simple(
+  Action.new(
     'merge',
     'Merge split view',
     nil,
-    'ctrl+w',
+    A.click('ctrl+w'),
     function(action, event)
       if getmetatable(root.child) ~= SplitView then return end
       root.child = root.child:merge()
@@ -261,26 +262,20 @@ root:add_actions(
     'Set UI theme',
     nil,
     nil,
-    nil,
     function(action, event)
       theme_setter:show_dialog()
       root:request_draw()
-    end,
-    true,
-    true
+    end
   ),
   Action.new(
     'tty_test',
     'Test terminal',
     'Runs a demo routine showcasing all the supported features of your terminal.',
     nil,
-    nil,
     function(action, event)
       tty_test()
       root:request_draw()
-    end,
-    true,
-    true
+    end
   )
 )
 for _, i in ipairs({'split', 'merge'}) do

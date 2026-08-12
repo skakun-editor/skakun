@@ -36,28 +36,32 @@ ActionPrompt.__index = ActionPrompt
 function ActionPrompt.new(path)
   local self = setmetatable(List.new(), ActionPrompt)
   self.faces = setmetatable({}, { __index = ActionPrompt.faces })
+
+  local A = Action.Activator
   self:add_actions(
-    Action.new_simple(
+    Action.new(
       'activate',
       'Activate selected action',
       'Activates the currently selected action.',
-      {'enter', 'kp_enter'},
+      A.click('enter') | A.click('kp_enter'),
       function(action, event)
         self:activate_selected_item()
         self:close()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'activate_keep_open',
       'Activate selected action and keep open',
       nil,
-      {'ctrl+enter', 'ctrl+kp_enter'},
+      A.click('ctrl+enter') | A.click('ctrl+kp_enter'),
       function(action, event)
         self:activate_selected_item()
       end
     )
   )
+
   self.search_field:set_name('Action Prompt')
+
   return self
 end
 

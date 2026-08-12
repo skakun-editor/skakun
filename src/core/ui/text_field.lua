@@ -42,17 +42,17 @@ function TextField.new()
   self.faces = setmetatable({}, { __index = TextField.faces })
   self.colors = setmetatable({}, { __index = TextField.colors })
 
+  local A = Action.Activator
   self:add_actions(
     Action.new(
       'goto_mouse',
       'Move cursor to mouse pointer',
       nil,
-      Action.button_symbols.mouse_left,
-      function(action, event)
-        return (event.type == 'press' or event.type == 'release') and event.button == 'mouse_left' and
-               utils.point_is_in_rect(event.x, event.y, self:drawn_bounds()) or
-               event.type == 'move' and self.mouse_is_dragging_cursor
-      end,
+      ((A.click('mouse_left') | A.release('mouse_left')) & function(event)
+        return utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
+      end | function(event)
+        return event.type == 'move' and self.mouse_is_dragging_cursor
+      end):with_hint(ui.button_syms.mouse_left),
       function(action, event)
         if event.type == 'release' then
           self.mouse_is_dragging_cursor = false
@@ -75,15 +75,13 @@ function TextField.new()
         end
         self:adjust_view_to_contain_idx(self.cursor)
         self:request_draw()
-      end,
-      true,
-      true
+      end
     ),
-    Action.new_simple(
+    Action.new(
       'move_left',
       'Move cursor left',
       nil,
-      'left',
+      A.click('left'),
       function(action, event)
         local old_cursor = self.cursor
         for i in grapheme.characters(self.text) do
@@ -94,11 +92,11 @@ function TextField.new()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'move_left_word',
       'Move cursor left by a word',
       nil,
-      'ctrl+left',
+      A.click('ctrl+left'),
       function(action, event)
         local old_cursor = self.cursor
         for i in grapheme.words(self.text) do
@@ -109,11 +107,11 @@ function TextField.new()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'move_right',
       'Move cursor right',
       nil,
-      'right',
+      A.click('right'),
       function(action, event)
         local old_cursor = self.cursor
         for i in grapheme.characters(self.text) do
@@ -129,11 +127,11 @@ function TextField.new()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'move_right_word',
       'Move cursor right by a word',
       nil,
-      'ctrl+right',
+      A.click('ctrl+right'),
       function(action, event)
         local old_cursor = self.cursor
         for i in grapheme.words(self.text) do
@@ -149,55 +147,55 @@ function TextField.new()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'goto_start',
       'Move cursor to the beginning',
       nil,
-      'home',
+      A.click('home'),
       function(action, event)
         self.cursor = 1
         self:adjust_view_to_contain_idx(self.cursor)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'goto_end',
       'Move cursor to the end',
       nil,
-      'end',
+      A.click('end'),
       function(action, event)
         self.cursor = #self.text + 1
         self:adjust_view_to_contain_idx(self.cursor)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'undo',
       'Undo previous edit',
       nil,
-      'ctrl+z',
+      A.click('ctrl+z'),
       function(action, event)
         self:undo()
         self:adjust_view_to_contain_idx(self.cursor)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'redo',
       'Redo next edit',
       nil,
-      'ctrl+y',
+      A.click('ctrl+y'),
       function(action, event)
         self:redo()
         self:adjust_view_to_contain_idx(self.cursor)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'delete_left',
       'Delete character before cursor',
       nil,
-      'backspace',
+      A.click('backspace'),
       function(action, event)
         self:update_history_before_edit()
         local from = 1
@@ -212,11 +210,11 @@ function TextField.new()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'delete_word_left',
       'Delete word before cursor',
       nil,
-      'ctrl+backspace',
+      A.click('ctrl+backspace'),
       function(action, event)
         self:update_history_before_edit()
         local from = 1
@@ -231,11 +229,11 @@ function TextField.new()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'delete_right',
       'Delete character after cursor',
       nil,
-      'delete',
+      A.click('delete'),
       function(action, event)
         self:update_history_before_edit()
         local to = #self.text + 1
@@ -250,11 +248,11 @@ function TextField.new()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'delete_word_right',
       'Delete word after cursor',
       nil,
-      'ctrl+delete',
+      A.click('ctrl+delete'),
       function(action, event)
         self:update_history_before_edit()
         local to = #self.text + 1
@@ -273,10 +271,9 @@ function TextField.new()
       'insert_left',
       'Insert text before cursor',
       nil,
-      'Type or paste',
-      function(action, event)
+      A.predicate(function(event)
         return event.text and not event.alt and not event.ctrl
-      end,
+      end):with_hint('Type or paste'),
       function(action, event)
         self:update_history_before_edit()
         self.text = self.text:sub(1, self.cursor - 1) .. event.text .. self.text:sub(self.cursor)
@@ -284,9 +281,7 @@ function TextField.new()
         self:update_history_after_edit()
         self:adjust_view_to_contain_idx(self.cursor)
         self:request_draw()
-      end,
-      true,
-      true
+      end
     )
   )
 

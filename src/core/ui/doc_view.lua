@@ -65,42 +65,43 @@ function DocView.new(doc)
   self.faces = setmetatable({}, { __index = DocView.faces })
   self.colors = setmetatable({}, { __index = DocView.colors })
 
+  local A = Action.Activator
   self:add_actions(
-    Action.new_simple(
+    Action.new(
       'view_up',
       'Scroll view up',
       nil,
-      'scroll_up',
+      A.click('scroll_up'),
       function(action, event)
         self.view_start.line = math.max(self.view_start.line - self.view_scroll_speed, 1)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'view_down',
       'Scroll view down',
       nil,
-      'scroll_down',
+      A.click('scroll_down'),
       function(action, event)
         self.view_start.line = self.view_start.line + self.view_scroll_speed
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'view_left',
       'Scroll view left',
       nil,
-      'scroll_left',
+      A.click('scroll_left'),
       function(action, event)
         self.view_start.col = math.max(self.view_start.col - self.view_scroll_speed, 1)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'view_right',
       'Scroll view right',
       nil,
-      'scroll_right',
+      A.click('scroll_right'),
       function(action, event)
         self.view_start.col = self.view_start.col + self.view_scroll_speed
         self:request_draw()
@@ -110,11 +111,8 @@ function DocView.new(doc)
       'cursors_mouse',
       'Move cursors to mouse pointer',
       nil,
-      Action.button_symbols.mouse_left,
-      function(action, event)
-        return event.type == 'press' and event.button == 'mouse_left' and
-               not event.alt and not event.ctrl and not event.shift and
-               utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
+      A.click('mouse_left') & function(event)
+        return utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
       end,
       function(action, event)
         local cursor = self:buffer_idx_drawn_at(event.x, event.y)
@@ -127,19 +125,14 @@ function DocView.new(doc)
         self.mouse_is_dragging_selection = true
         self:adjust_view_to_contain_idx(cursor)
         self:request_draw()
-      end,
-      true,
-      true
+      end
     ),
     Action.new(
       'new_cursor_mouse',
       'Add cursor at mouse pointer',
       nil,
-      Action.mod_symbols.alt .. Action.button_symbols.mouse_left,
-      function(action, event)
-        return event.type == 'press' and event.button == 'mouse_left' and
-               event.alt and not event.ctrl and not event.shift and
-               utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
+      A.click('alt+mouse_left') & function(event)
+        return utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
       end,
       function(action, event)
         local cursor = self:buffer_idx_drawn_at(event.x, event.y)
@@ -152,20 +145,16 @@ function DocView.new(doc)
         self.mouse_is_dragging_selection = true
         self:adjust_view_to_contain_idx(cursor)
         self:request_draw()
-      end,
-      true,
-      true
+      end
     ),
     Action.new(
       'latest_cursor_mouse_select',
       'Move latest selection head to mouse pointer',
       nil,
-      Action.mod_symbols.shift .. Action.button_symbols.mouse_left,
-      function(action, event)
-        return (event.type == 'press' and event.button == 'mouse_left' and
-               not event.alt and not event.ctrl and event.shift or
-               event.type == 'move' and self.mouse_is_dragging_selection) and
-               utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
+      (A.click('shift+mouse_left') | function(event)
+        return event.type == 'move' and self.mouse_is_dragging_selection
+      end) & function(event)
+        return utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
       end,
       function(action, event)
         local cursor = self:buffer_idx_drawn_at(event.x, event.y)
@@ -177,29 +166,22 @@ function DocView.new(doc)
         self.mouse_is_dragging_selection = true
         self:adjust_view_to_contain_idx(cursor)
         self:request_draw()
-      end,
-      true,
-      true
+      end
     ),
     Action.new(
       'stop_drag',
       'Stop dragging selection head',
       nil,
-      'Release ' .. Action.button_symbols.mouse_left,
-      function(action, event)
-        return event.type == 'release' and event.button == 'mouse_left'
-      end,
+      A.release('mouse_left'),
       function(action, event)
         self.mouse_is_dragging_selection = false
-      end,
-      true,
-      true
+      end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_left',
       'Move cursors left',
       nil,
-      'left',
+      A.click('left'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_left(true)
@@ -207,11 +189,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_right',
       'Move cursors right',
       nil,
-      'right',
+      A.click('right'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_right(true)
@@ -219,11 +201,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_up',
       'Move cursors up',
       nil,
-      'up',
+      A.click('up'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_up(1, true)
@@ -231,11 +213,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_down',
       'Move cursors down',
       nil,
-      'down',
+      A.click('down'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_down(1, true)
@@ -243,11 +225,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_up_page',
       'Move cursors up by a page',
       nil,
-      'page_up',
+      A.click('page_up'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_up(#self.drawn.lines, true)
@@ -255,11 +237,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_down_page',
       'Move cursors down by a page',
       nil,
-      'page_down',
+      A.click('page_down'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_down(#self.drawn.lines, true)
@@ -267,11 +249,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_line_start',
       'Move cursors to line start',
       nil,
-      'home',
+      A.click('home'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_to_line_start(true)
@@ -279,11 +261,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_line_end',
       'Move cursors to line end',
       nil,
-      'end',
+      A.click('end'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_to_line_end(true)
@@ -291,11 +273,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_buffer_start',
       'Move cursors to buffer start',
       nil,
-      'ctrl+home',
+      A.click('ctrl+home'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_to_buffer_start(true)
@@ -303,11 +285,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_buffer_end',
       'Move cursors to buffer end',
       nil,
-      'ctrl+end',
+      A.click('ctrl+end'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_to_buffer_end(true)
@@ -315,11 +297,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_left_select',
       'Move selection heads left',
       nil,
-      'shift+left',
+      A.click('shift+left'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_left(false)
@@ -327,11 +309,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_right_select',
       'Move selection heads right',
       nil,
-      'shift+right',
+      A.click('shift+right'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_right(false)
@@ -339,11 +321,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_up_select',
       'Move selection heads up',
       nil,
-      'shift+up',
+      A.click('shift+up'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_up(1, false)
@@ -351,11 +333,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_down_select',
       'Move selection heads down',
       nil,
-      'shift+down',
+      A.click('shift+down'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_down(1, false)
@@ -363,11 +345,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_up_page_select',
       'Move selection heads up by a page',
       nil,
-      'shift+page_up',
+      A.click('shift+page_up'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_up(#self.drawn.lines, false)
@@ -375,11 +357,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_down_page_select',
       'Move selection heads down by a page',
       nil,
-      'shift+page_down',
+      A.click('shift+page_down'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_down(#self.drawn.lines, false)
@@ -387,11 +369,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_line_start_select',
       'Move selection heads to line start',
       nil,
-      'shift+home',
+      A.click('shift+home'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_to_line_start(false)
@@ -399,11 +381,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_line_end_select',
       'Move selection heads to line end',
       nil,
-      'shift+end',
+      A.click('shift+end'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_to_line_end(false)
@@ -411,11 +393,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_buffer_start_select',
       'Move selection heads to buffer start',
       nil,
-      'ctrl+shift+home',
+      A.click('ctrl+shift+home'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_to_buffer_start(false)
@@ -423,11 +405,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'cursors_buffer_end_select',
       'Move selection heads to buffer end',
       nil,
-      'ctrl+shift+end',
+      A.click('ctrl+shift+end'),
       function(action, event)
         self:sync_selections()
         self:move_cursors_to_buffer_end(false)
@@ -435,22 +417,22 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'select_all',
       'Select whole buffer',
       nil,
-      'ctrl+a',
+      A.click('ctrl+a'),
       function(action, event)
         self:clear_selections()
         self:add_selection(1, #self.doc.buffer)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'undo',
       'Undo previous edit',
       nil,
-      'ctrl+z',
+      A.click('ctrl+z'),
       function(action, event)
         if self.doc.buffer.parent then
           self.doc:set_buffer(self.doc.buffer.parent)
@@ -458,20 +440,20 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'save',
       'Save buffer to disk',
       nil,
-      'ctrl+s',
+      A.click('ctrl+s'),
       function(action, event)
         self.doc:save()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'delete_left',
       'Delete character before each cursor',
       nil,
-      'backspace',
+      A.click('backspace'),
       function(action, event)
         self:sync_selections()
         local buffer = self.doc.buffer:thaw()
@@ -503,11 +485,11 @@ function DocView.new(doc)
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'delete_right',
       'Delete character after each cursor',
       nil,
-      'delete',
+      A.click('delete'),
       function(action, event)
         self:sync_selections()
         local buffer = self.doc.buffer:thaw()
@@ -542,10 +524,9 @@ function DocView.new(doc)
       'insert_left',
       'Insert text before each cursor',
       nil,
-      'Type or paste',
-      function(action, event)
+      A.predicate(function(event)
         return event.text and not event.alt and not event.ctrl
-      end,
+      end):with_hint('Type or paste'),
       function(action, event)
         event.text = event.text:gsub('\r\n', '\n'):gsub('\r', '\n')
         self:sync_selections()
@@ -573,9 +554,7 @@ function DocView.new(doc)
         self.selections_set_buffer_log_idx = #self.doc.set_buffer_log
         self:adjust_view_to_contain_selection(self.selections:first().value)
         self:request_draw()
-      end,
-      true,
-      true
+      end
     )
   )
 

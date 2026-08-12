@@ -81,31 +81,35 @@ ThemeSetter.List.__index = ThemeSetter.List
 function ThemeSetter.List.new(owner)
   local self = setmetatable(List.new(), ThemeSetter.List)
   self.faces = setmetatable({}, { __index = ThemeSetter.List.faces })
+
+  local A = Action.Activator
   self:add_actions(
-    Action.new_simple(
+    Action.new(
       'apply',
       'Apply selected theme',
       'Activates the currently selected theme.',
-      {'enter', 'kp_enter'},
+      A.click('enter') | A.click('kp_enter'),
       function(action, event)
         self.owner:set_theme(self.items[self:selected_item_idx()])
         self.owner:hide_dialog()
         self:request_draw()
       end
     ),
-    Action.new_simple(
+    Action.new(
       'hide',
       'Hide',
       nil,
-      'escape',
+      A.click('escape'),
       function(action, event)
         self.owner:hide_dialog()
         self:request_draw()
       end
     )
   )
+
   self.owner = owner
   self.items = owner.themes
+
   return self
 end
 
