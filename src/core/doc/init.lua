@@ -16,26 +16,34 @@
 
 local DocBuffer = require('core.doc.buffer')
 
-local Doc = {}
+local Doc = {
+  history_commit_delay = 1.0,
+}
 Doc.__index = Doc
 
 function Doc.new()
   local self = setmetatable({
-    buffer = nil,
-    set_buffer_log = {},
+    history_idx = 1,
     path = nil,
   }, Doc)
-  self:set_buffer(DocBuffer.new(self))
+  local buffer = DocBuffer.new(self)
+  buffer:freeze()
+  self.buffer = buffer
+  self.history = {buffer}
+  self.set_buffer_log = {buffer}
   return self
 end
 
 function Doc.open(path)
   local self = setmetatable({
-    buffer = nil,
-    set_buffer_log = {},
+    history_idx = 1,
     path = path,
   }, Doc)
-  self:set_buffer(DocBuffer.open(self, path))
+  local buffer = DocBuffer.open(self, path)
+  buffer:freeze()
+  self.buffer = buffer
+  self.history = {buffer}
+  self.set_buffer_log = {buffer}
   return self
 end
 
@@ -52,8 +60,27 @@ end
 function Doc:set_buffer(buffer)
   assert(buffer.doc == self)
   buffer:freeze()
+  if self.history_idx < #self.history or buffer.freeze_time - self.buffer.freeze_time >= self.history_commit_delay then
+    for i = self.history_idx + 1, #self.history do
+      self.history[i] = nil
+    end
+    self.history_idx = self.history_idx + 1
+  end
+  self.history[self.history_idx] = buffer
   self.buffer = buffer
   table.insert(self.set_buffer_log, buffer)
+end
+
+function Doc:undo()
+  self.history_idx = math.max(1, self.history_idx - 1)
+  self.buffer = self.history[self.history_idx]
+  table.insert(self.set_buffer_log, self.buffer)
+end
+
+function Doc:redo()
+  self.history_idx = math.min(#self.history, self.history_idx + 1)
+  self.buffer = self.history[self.history_idx]
+  table.insert(self.set_buffer_log, self.buffer)
 end
 
 return Doc

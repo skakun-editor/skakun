@@ -28,7 +28,6 @@ local utils             = require('core.utils')
 
 -- HACK: bring back soft wrapping
 -- TODO: line numbers
--- TODO: proper undo and redo
 -- TODO: set native cursor and window title when widget focused
 -- IDEA: highlight suspicious unicode characters, such as variation selectors
 -- BUG: invisible selections in linux console
@@ -434,9 +433,17 @@ function DocView.new(doc)
       nil,
       A.click('ctrl+z'),
       function(action, event)
-        if self.doc.buffer.parent then
-          self.doc:set_buffer(self.doc.buffer.parent)
-        end
+        self.doc:undo()
+        self:request_draw()
+      end
+    ),
+    Action.new(
+      'redo',
+      'Redo next edit',
+      nil,
+      A.click('ctrl+y'),
+      function(action, event)
+        self.doc:redo()
         self:request_draw()
       end
     ),
@@ -528,7 +535,6 @@ function DocView.new(doc)
         return event.text and not event.alt and not event.ctrl
       end):with_hint('Type or paste'),
       function(action, event)
-        event.text = event.text:gsub('\r\n', '\n'):gsub('\r', '\n')
         self:sync_selections()
         local buffer = self.doc.buffer:thaw()
         local shift = 0

@@ -180,7 +180,7 @@ end
 
 function DocBuffer:carry_idx_over(idx, idx_buffer)
   if self.root ~= idx_buffer.root then
-    return 1
+    return #self + 1
   end
   local prev
   idx_buffer:walk_to(self, function(buffer)

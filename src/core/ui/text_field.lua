@@ -48,16 +48,12 @@ function TextField.new()
       'goto_mouse',
       'Move cursor to mouse pointer',
       nil,
-      ((A.click('mouse_left') | A.release('mouse_left')) & function(event)
+      (A.click('mouse_left') & function(event)
         return utils.point_is_in_rect(event.x, event.y, self:drawn_bounds())
       end | function(event)
         return event.type == 'move' and self.mouse_is_dragging_cursor
       end):with_hint(ui.button_syms.mouse_left),
       function(action, event)
-        if event.type == 'release' then
-          self.mouse_is_dragging_cursor = false
-          return
-        end
         self.mouse_is_dragging_cursor = true
         -- We can't process these events as though the user were interacting with
         -- the state actually visible on their screen because, in contrast to
@@ -75,6 +71,15 @@ function TextField.new()
         end
         self:adjust_view_to_contain_idx(self.cursor)
         self:request_draw()
+      end
+    ),
+    Action.new(
+      'stop_drag',
+      'Stop dragging cursor',
+      nil,
+      A.release('mouse_left'),
+      function(action, event)
+        self.mouse_is_dragging_cursor = false
       end
     ),
     Action.new(

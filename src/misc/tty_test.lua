@@ -173,7 +173,7 @@ return function()
       end
 
       if event.text then
-        tty.write('‘', event.text:gsub('\r\n', '\n'):gsub('\r', '\n'):gsub('\n', '\r\n'), '’')
+        tty.write('‘', event.text:gsub('\n', '\r\n'), '’')
       end
 
       if event.x or event.y then
