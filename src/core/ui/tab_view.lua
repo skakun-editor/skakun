@@ -44,7 +44,7 @@ function TabView.new()
       'Open tab under mouse pointer',
       nil,
       A.click('mouse_left') & function(event)
-        return self.x <= event.x and event.x < self.x + self.width and event.y == self.y
+        return self.drawn.tabs_are_drawn and self.x <= event.x and event.x < self.x + self.width and event.y == self.y
       end,
       function(action, event)
         local x = self.x - self.tab_bar_scroll
@@ -144,7 +144,7 @@ function TabView.new()
       'Scroll left',
       nil,
       (A.click('scroll_up') | A.click('scroll_left')) & function(event)
-        return self.x <= event.x and event.x < self.x + self.width and event.y == self.y
+        return self.drawn.tabs_are_drawn and self.x <= event.x and event.x < self.x + self.width and event.y == self.y
       end,
       function(action, event)
         self.tab_bar_scroll = math.max(0, self.tab_bar_scroll - self.scroll_speed)
@@ -156,7 +156,7 @@ function TabView.new()
       'Scroll right',
       nil,
       (A.click('scroll_down') | A.click('scroll_right')) & function(event)
-        return self.x <= event.x and event.x < self.x + self.width and event.y == self.y
+        return self.drawn.tabs_are_drawn and self.x <= event.x and event.x < self.x + self.width and event.y == self.y
       end,
       function(action, event)
         local width = 0
@@ -181,7 +181,8 @@ function TabView:draw()
   Widget.draw(self)
   if self.width <= 0 or self.height <= 0 then return end
 
-  local tabs_are_drawn = #self.tabs >= 2
+  local tabs_are_drawn = #self.tabs >= 2 or #self.tabs == 1 and not self.open_tab_idx
+  self.drawn.tabs_are_drawn = tabs_are_drawn
 
   local content = self.tabs[self.open_tab_idx]
   if content then

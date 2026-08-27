@@ -63,7 +63,7 @@ function TextField.new()
         self.cursor = #self.text + 1
         local x = self.drawn.x - self.view_start + 1
         for i, grapheme in grapheme.characters(self.text) do
-          x = x + tty.width_of(utf8.len(grapheme) and grapheme or '�') -- HACK: ctrl pics
+          x = x + tty.width_of(not utf8.len(grapheme) and '�' or ui.ctrl_pics[grapheme] or grapheme)
           if event.x < x then
             self.cursor = i
             break
@@ -189,7 +189,7 @@ function TextField.new()
       'redo',
       'Redo next edit',
       nil,
-      A.click('ctrl+y'),
+      A.click('ctrl+shift+z') | A.click('ctrl+y'),
       function(action, event)
         self:redo()
         self:adjust_view_to_contain_idx(self.cursor)
@@ -369,6 +369,10 @@ function TextField:draw()
   end
 end
 
+function TextField:natural_size()
+  return 1 + 8 + 1 + self.view_containment_margin, 1
+end
+
 function TextField:undo()
   if not self.history_idx then
     if self.history[#self.history] ~= self.text then
@@ -399,7 +403,7 @@ function TextField:adjust_view_to_contain_idx(idx)
   local col = 1
   for i, grapheme in grapheme.characters(self.text) do
     if idx < i + #grapheme then break end
-    col = col + tty.width_of(utf8.len(grapheme) and grapheme or '�')
+    col = col + tty.width_of(not utf8.len(grapheme) and '�' or ui.ctrl_pics[grapheme] or grapheme)
   end
   local margin = math.min(self.view_containment_margin, (self.width - 1) // 2)
   self.view_start = math.max(math.min(self.view_start, col - margin), col + margin - self.width + 1, 1)

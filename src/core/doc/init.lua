@@ -15,6 +15,7 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 local DocBuffer = require('core.doc.buffer')
+local GLib      = require('LuaGObject').GLib
 
 local Doc = {
   history_commit_delay = 1.0,
@@ -37,10 +38,11 @@ end
 function Doc.open(path)
   local self = setmetatable({
     history_idx = 1,
-    path = path,
+    path = nil,
   }, Doc)
   local buffer = DocBuffer.open(self, path)
   buffer:freeze()
+  self:set_path(path)
   self.buffer = buffer
   self.history = {buffer}
   self.set_buffer_log = {buffer}
@@ -55,6 +57,10 @@ function Doc:save(path)
   else
     self.buffer:save(self.path)
   end
+end
+
+function Doc:set_path(value)
+  self.path = GLib.canonicalize_filename(value, nil)
 end
 
 function Doc:set_buffer(buffer)

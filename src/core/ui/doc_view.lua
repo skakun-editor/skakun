@@ -25,6 +25,7 @@ local ui                = require('core.ui')
 local Action            = require('core.ui.action')
 local Widget            = require('core.ui.widget')
 local utils             = require('core.utils')
+local GLib              = require('LuaGObject').GLib
 
 -- HACK: bring back soft wrapping
 -- TODO: line numbers
@@ -441,7 +442,7 @@ function DocView.new(doc)
       'redo',
       'Redo next edit',
       nil,
-      A.click('ctrl+y'),
+      A.click('ctrl+shift+z') | A.click('ctrl+y'),
       function(action, event)
         self.doc:redo()
         self:request_draw()
@@ -565,6 +566,7 @@ function DocView.new(doc)
   )
 
   self.doc = doc
+  self:refresh_titles()
   self.view_start = { line = 1, col = 1, buffer = doc.buffer }
   self.selections = utils.SortedSet.new(function(a, b)
     if a.idx ~= b.idx then
@@ -1001,6 +1003,12 @@ function DocView:merge_selections_if_overlapping(a, b, preferred_len_sign)
     result.col_hint = b.col_hint
   end
   return result
+end
+
+function DocView:refresh_titles()
+  local filename = GLib.path_get_basename(self.doc.path)
+  self.frame_title = 'Edit ' .. filename
+  self.tab_title = filename
 end
 
 return DocView

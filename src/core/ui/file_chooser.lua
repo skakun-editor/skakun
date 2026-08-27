@@ -31,6 +31,7 @@ local GLib       = require('LuaGObject').GLib
 
 local FileChooser = setmetatable({
   name = 'File Chooser',
+  frame_title = 'Choose a File',
 
   scroll_speed = 3,
 
@@ -454,6 +455,10 @@ function FileChooser:draw()
     tty.write((' '):rep(self.width))
     y = y + 1
   end
+end
+
+function FileChooser:natural_size()
+  return 30, 10
 end
 
 function FileChooser:label_for_completion(file_info)

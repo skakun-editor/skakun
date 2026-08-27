@@ -685,6 +685,17 @@ function SplitView:last_leaf()
   end
 end
 
+function SplitView:leaves()
+  local i, parent, side = 1, self:first_leaf()
+  return coroutine.wrap(function()
+    while parent do
+      coroutine.yield(i, parent, side)
+      i = i + 1
+      parent, side = self:next_leaf(parent, side)
+    end
+  end)
+end
+
 function SplitView:prev_leaf(parent, side)
   while side == 'first' and parent ~= self do
     parent, side = self:node_parent(parent, side)

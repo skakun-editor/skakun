@@ -18,6 +18,7 @@ local SyntaxHighlighter = require('core.doc.syntax_highlighter')
 local tty               = require('core.tty')
 local ActionPrompt      = require('core.ui.action_prompt')
 local DocView           = require('core.ui.doc_view')
+local FileChooser       = require('core.ui.file_chooser')
 local Frame             = require('core.ui.frame')
 local List              = require('core.ui.list')
 local SplitView         = require('core.ui.split_view')
@@ -55,6 +56,9 @@ function Fruitmash:apply()
     DocView.faces, 'invalid', theme.faces.invalid,
     DocView.faces, 'normal', theme.faces.normal,
     DocView.faces, 'syntax_highlights', theme.faces.syntax_highlights,
+    FileChooser.faces, 'completion', theme.faces.popup_inset,
+    FileChooser.faces, 'invalid', theme.faces.invalid,
+    FileChooser.faces, 'selected_completion', theme.faces.cursor,
     Frame.faces, 'border', theme.faces.popup,
     Frame.faces, 'content', theme.faces.popup_inset,
     Frame.faces, 'invalid', theme.faces.invalid,

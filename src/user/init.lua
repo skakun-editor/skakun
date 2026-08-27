@@ -9,6 +9,7 @@ local ui                = require('core.ui')
 local Action            = require('core.ui.action')
 local ActionPrompt      = require('core.ui.action_prompt')
 local DocView           = require('core.ui.doc_view')
+local FileChooser       = require('core.ui.file_chooser')
 local Frame             = require('core.ui.frame')
 local nerd_fonts        = require('core.ui.nerd_fonts')
 local SplitView         = require('core.ui.split_view')
@@ -16,6 +17,7 @@ local TabView           = require('core.ui.tab_view')
 local ThemeSetter       = require('core.ui.theme_setter')
 local Widget            = require('core.ui.widget')
 local utils             = require('core.utils')
+local GLib              = require('LuaGObject').GLib
 local tty_test          = require('misc.tty_test')
 
 -- TODO: update the rest of the themes to support the new ui eleements
@@ -23,7 +25,6 @@ local tty_test          = require('misc.tty_test')
 -- HACK: update docs when you're finished lol
 -- TODO: autosave when idle
 -- TODO: do we really need descriptions for all ui actions?
--- TODO: opening files and having multiple open files at once and having multiple views into one file
 -- BUG: use-after-free race condition in finishget in multithreaded lua
 -- TODO: nice profiling and debugging environment
 -- TODO: nice Treesitter grammar development environment
@@ -31,6 +32,7 @@ local tty_test          = require('misc.tty_test')
 -- BUG: improve Lua interpreter performance
 -- IDEA: Lua typechecker
 -- TODO: hex doc view
+-- TODO: ask to save docs before quiting
 
 core.should_forward_stderr_on_exit = false
 utils.lock_globals()
@@ -70,35 +72,104 @@ local root = Widget.new()
 root.name = 'Root'
 
 local tab_view = TabView.new()
-root.child = tab_view
+root.content = tab_view
 tab_view.parent = root
 
-if core.args[2] then
-  local doc_view = DocView.new(Doc.open(core.args[2]))
-  table.insert(core.cleanups, function() doc_view:stop_background_tasks() end)
-  tab_view:add_tab(doc_view)
-end
+-- if core.args[2] then
+--   local doc_view = DocView.new(Doc.open(core.args[2]))
+--   table.insert(core.cleanups, function() doc_view:stop_background_tasks() end)
+--   tab_view:add_tab(doc_view)
+-- end
 
-for file in io.popen(('find %q/../lib/skakun/core/ui/ -type f'):format(core.exe_dir)):lines() do
-  local doc = DocView.new(Doc.open(file))
-  table.insert(core.cleanups, function()
-    doc:stop_background_tasks()
-  end)
-  tab_view:add_tab(doc)
+-- for file in io.popen(('find %q/../lib/skakun/core/ui/ -type f'):format(core.exe_dir)):lines() do
+--   local doc = DocView.new(Doc.open(file))
+--   table.insert(core.cleanups, function()
+--     doc:stop_background_tasks()
+--   end)
+--   tab_view:add_tab(doc)
+-- end
+
+local docs = {}
+
+root.overlays = {}
+function root:remove_overlay(widget)
+  local i = 1
+  while i <= #root.overlays do
+    local other = root.overlays[i]
+    if other == widget then
+      table.remove(root.overlays, i)
+    else
+      i = i + 1
+    end
+  end
 end
 
 local action_prompt = nil
+
+local file_chooser = Frame.new(FileChooser.new())
+file_chooser.parent = root
+file_chooser.content.frame_title = 'Choose a File to Open'
+local A = Action.Activator
+file_chooser:add_action(Action.new(
+  'submit',
+  'Open selected file',
+  nil,
+  A.click('enter'),
+  function(action, event)
+    local path = GLib.canonicalize_filename(file_chooser.content.path_field.text, nil)
+    local doc = nil
+    for _, i in ipairs(docs) do
+      if i.path == path then
+        doc = i
+        break
+      end
+    end
+    if not doc then
+      doc = Doc.open(path)
+    end
+    root:add_tab(DocView.new(doc))
+    root:remove_overlay(file_chooser)
+    root:request_draw()
+  end
+))
 
 local theme_setter = ThemeSetter.new()
 theme_setter:require_themes('dracula', 'fruitmash_dark', 'fruitmash_light', 'github_dark', 'github_light', 'gruvbox_dark', 'gruvbox_light')
 theme_setter:set_theme(require('theme.fruitmash_dark'))
 theme_setter.dialog.parent = root
-local theme_setter_is_shown = false
 function theme_setter:show_dialog()
-  theme_setter_is_shown = true
+  root:remove_overlay(theme_setter.dialog)
+  table.insert(root.overlays, theme_setter.dialog)
 end
 function theme_setter:hide_dialog()
-  theme_setter_is_shown = false
+  root:remove_overlay(theme_setter.dialog)
+end
+
+function root:add_tab(widget)
+  local tab_view = self.content
+  if getmetatable(tab_view) == SplitView then
+    local parent, side = tab_view:focused_leaf()
+    local leaf = parent[side]
+    if not leaf then
+      parent[side] = widget
+      widget.parent = parent
+      return
+    elseif getmetatable(leaf) == SplitView then
+      error('cannot add tab to split view')
+    elseif getmetatable(leaf) ~= TabView then
+      leaf.parent = nil
+      parent[side] = TabView.new()
+      parent[side].parent = parent
+      parent[side]:add_tab(leaf)
+    end
+    tab_view = parent[side]
+  elseif getmetatable(tab_view) ~= TabView then
+    tab_view.parent = nil
+    self.content = TabView.new()
+    self.content.parent = self
+    self.content:add_tab(tab_view)
+  end
+  tab_view:add_tab(widget)
 end
 
 local mouse_x, mouse_y = 1, 1
@@ -109,11 +180,11 @@ function root:draw()
   tty.set_cursor(false)
   -- tty.set_window_background(doc_view.faces.normal.background)
 
-  self.child:set_bounds(self:drawn_bounds())
-  self.child:draw()
+  self.content:set_bounds(self:drawn_bounds())
+  self.content:draw()
 
-  if theme_setter_is_shown then
-    local width, height = theme_setter.dialog:natural_size()
+  for _, child in ipairs(root.overlays) do
+    local width, height = child:natural_size()
     if width > self.width then
       width = self.width
     elseif width % 2 ~= self.width % 2 then
@@ -124,24 +195,8 @@ function root:draw()
     elseif height % 2 ~= self.height % 2 then
       height = height + 1
     end
-    theme_setter.dialog:set_bounds(1 + (self.width - width) // 2, 1 + (self.height - height) // 2, width, height)
-    theme_setter.dialog:draw()
-  end
-
-  if action_prompt then
-    local width, height = action_prompt:natural_size()
-    if width > self.width then
-      width = self.width
-    elseif width % 2 ~= self.width % 2 then
-      width = width + 1
-    end
-    if height > self.height then
-      height = self.height
-    elseif height % 2 ~= self.height % 2 then
-      height = height + 1
-    end
-    action_prompt:set_bounds(1 + (self.width - width) // 2, 1 + (self.height - height) // 2, width, height)
-    action_prompt:draw()
+    child:set_bounds(1 + (self.width - width) // 2, 1 + (self.height - height) // 2, width, height)
+    child:draw()
   end
 
   --[[
@@ -216,18 +271,30 @@ root:add_actions(
     A.click('f1'),
     function(action, event)
       if action_prompt then
-        action_prompt.parent = nil
-        action_prompt = nil
+        action_prompt.content:close()
       else
         action_prompt = ActionPrompt.new()
         action_prompt:add_items_from_widget(root, true)
         function action_prompt:close()
+          root:remove_overlay(action_prompt)
           action_prompt.parent = nil
           action_prompt = nil
+          root:request_draw()
         end
         action_prompt = Frame.new(action_prompt)
         action_prompt.parent = root
+        table.insert(root.overlays, action_prompt)
       end
+      root:request_draw()
+    end
+  ),
+  Action.new(
+    'open',
+    'Open file',
+    nil,
+    A.click('ctrl+o'),
+    function(action, event)
+      table.insert(root.overlays, file_chooser)
       root:request_draw()
     end
   ),
@@ -238,10 +305,10 @@ root:add_actions(
     A.click('ctrl+backslash'),
     function(action, event)
       local split_view = SplitView.new()
-      root.child.parent = nil
-      split_view:set_first(root.child)
-      root.child = split_view
-      root.child.parent = root
+      root.content.parent = nil
+      split_view:set_first(root.content)
+      root.content = split_view
+      root.content.parent = root
       root:request_draw()
     end
   ),
@@ -251,9 +318,9 @@ root:add_actions(
     nil,
     A.click('ctrl+w'),
     function(action, event)
-      if getmetatable(root.child) ~= SplitView then return end
-      root.child = root.child:merge()
-      root.child.parent = root
+      if getmetatable(root.content) ~= SplitView then return end
+      root.content = root.content:merge()
+      root.content.parent = root
       root:request_draw()
     end
   ),
@@ -292,21 +359,18 @@ end
 
 function root:children()
   return coroutine.wrap(function()
-    if action_prompt then
-      coroutine.yield(action_prompt)
+    coroutine.yield(self.content)
+    for _, child in ipairs(root.overlays) do
+      coroutine.yield(child)
     end
-    coroutine.yield(theme_setter.dialog)
-    coroutine.yield(self.child)
   end)
 end
 
 function root:child_is_focused(widget)
-  if widget == action_prompt then
-    return true
-  elseif theme_setter_is_shown then
-    return widget == theme_setter.dialog
+  if #root.overlays > 0 then
+    return widget == root.overlays[#root.overlays]
   else
-    return widget == self.child
+    return widget == self.content
   end
 end
 
