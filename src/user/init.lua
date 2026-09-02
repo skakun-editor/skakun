@@ -36,10 +36,35 @@ local tty_test          = require('misc.tty_test')
 
 core.should_forward_stderr_on_exit = false
 utils.lock_globals()
-table.insert(core.cleanups, tty.restore)
-tty.setup()
+-- table.insert(core.cleanups, tty.restore)
+-- tty.setup()
 nerd_fonts.version = '3.4.0'
 nerd_fonts.init()
+
+local function dangling_table()
+  local result = { deep_field = os.clock(), junk = '' }
+  for i = 1, 100 do
+    local function closure(old_result)
+      return function(_, key)
+        return old_result[key]
+      end
+    end
+    local a = { junk = result.junk .. i }
+    local b = { __index = closure(result) }
+    result = setmetatable(a, b)
+  end
+  return result
+end
+local function litter()
+  for i = 1, 1000000 do
+    print(dangling_table().deep_field)
+  end
+end
+for i = 1, 10 do
+  thread.new(litter, i)
+end
+
+do return end
 
 -- local names = {'red', 'orange', 'yellow', 'green', 'cyan', 'blue'}
 -- local width = 0
@@ -127,7 +152,11 @@ file_chooser:add_action(Action.new(
     if not doc then
       doc = Doc.open(path)
     end
-    root:add_tab(DocView.new(doc))
+    local doc_view = DocView.new(doc)
+    table.insert(core.cleanups, function()
+      doc_view:stop_background_tasks()
+    end)
+    root:add_tab(doc_view)
     root:remove_overlay(file_chooser)
     root:request_draw()
   end
@@ -169,7 +198,7 @@ function root:add_tab(widget)
     self.content.parent = self
     self.content:add_tab(tab_view)
   end
-  tab_view:add_tab(widget)
+  tab_view:set_open_tab_idx(tab_view:add_tab(widget))
 end
 
 local mouse_x, mouse_y = 1, 1

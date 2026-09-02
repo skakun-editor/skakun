@@ -40,6 +40,8 @@ local GLib              = require('LuaGObject').GLib
 -- TODO: reflowing text to fit a column limit
 -- TODO: treesitter grammar selection dialog
 -- TODO: save as… dialog
+-- TODO: automatically detect non-UTF-8 text encodings and allow them to be converted
+-- TODO: formatting JSON, XML etc documents
 
 local DocView = setmetatable({
   name = 'Document View',

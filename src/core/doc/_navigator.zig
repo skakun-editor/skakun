@@ -173,7 +173,15 @@ fn locate(vm: *lua.Lua, cmp: anytype, cmp_args: anytype) !i32 {
       curr.tab_col = prev.tab_col + 1;
     } else {
       curr.line = prev.line;
-      curr.col = prev.col + try tty_width_of(grapheme);
+      curr.col = prev.col +
+        // I don't know how to feel about this.
+        if(std.mem.eql(u8, grapheme, "\r\n"))
+          2
+        else if(grapheme.len == 1 and (grapheme[0] < ' ' or grapheme[0] == 127) or
+                grapheme.len == 2 and (grapheme[0] == 0b1100_0010 and grapheme[1] < 0b1010_0000))
+          1
+        else
+          try tty_width_of(grapheme);
       curr.tab_col = prev.tab_col;
     }
 
